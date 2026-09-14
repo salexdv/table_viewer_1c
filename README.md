@@ -17,11 +17,11 @@
 
 ## Установка и сборка
 
-Требуются Node.js 20+ и pnpm 11+.
+Требуется Node.js 20+ с npm.
 
 ```bash
-pnpm install
-pnpm build
+npm install
+npm run build
 ```
 
 Готовый файл находится в `dist/index.html`. Команда сборки дополнительно проверяет, что HTML единственный,
@@ -30,17 +30,17 @@ pnpm build
 Для разработки и проверок:
 
 ```bash
-pnpm dev
-pnpm test:unit
-pnpm test:browser
-pnpm test
+npm run dev
+npm run test:unit
+npm run test:browser
+npm test
 ```
 
 Browser smoke ищет Chromium/Chrome в системе или локальный Chrome Headless Shell в `.cache/puppeteer`.
 При отсутствии браузера его можно установить командой:
 
 ```bash
-pnpm dlx @puppeteer/browsers@2.13.2 install chrome-headless-shell@stable --path .cache/puppeteer
+npx @puppeteer/browsers@2.13.2 install chrome-headless-shell@stable --path .cache/puppeteer
 ```
 
 ## Формат данных

@@ -20,3 +20,4 @@
 ## Завершённые спецификации
 
 - [`table-viewer`](done/table-viewer/spec.md) — автономный просмотрщик таблиц и деревьев для 1С.
+- [`npm-package-manager`](done/npm-package-manager/spec.md) — установка, сборка и проверки проекта через npm.

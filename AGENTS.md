@@ -27,11 +27,11 @@
 
 ## Команды
 
-- `pnpm dev` — webpack-dev-server.
-- `pnpm build` — production single-file сборка и её проверка.
-- `pnpm test:unit` — unit-тесты модели.
-- `pnpm test:browser` — интеграционный smoke в Chromium.
-- `pnpm test` — полный локальный гейт.
+- `npm run dev` — webpack-dev-server.
+- `npm run build` — production single-file сборка и её проверка.
+- `npm run test:unit` — unit-тесты модели.
+- `npm run test:browser` — интеграционный smoke в Chromium.
+- `npm test` — полный локальный гейт.
 
 Перед коммитом запускать релевантные проверки. После каждого значимого завершённого этапа создавать отдельный
 коммит с сообщением Conventional Commits.

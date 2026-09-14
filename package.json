@@ -7,12 +7,12 @@
   "scripts": {
     "dev": "webpack serve --mode development --progress",
     "build:webpack": "webpack --mode production --progress",
-    "build": "pnpm run build:webpack && node tools/make-single.js && node tools/check-single.js && node tools/check-es.js",
+    "build": "npm run build:webpack && node tools/make-single.js && node tools/check-single.js && node tools/check-es.js",
     "check:single": "node tools/check-single.js",
     "check:es": "node tools/check-es.js",
     "test:unit": "mocha \"tests/unit/**/*.test.js\"",
     "test:browser": "node tests/browser/smoke.js",
-    "test": "pnpm run test:unit && pnpm run build && pnpm run test:browser"
+    "test": "npm run test:unit && npm run build && npm run test:browser"
   },
   "browserslist": [
     "safari >= 9",
@@ -40,5 +40,5 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@11.0.0"
+  "packageManager": "npm@10.9.2"
 }

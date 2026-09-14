@@ -44,7 +44,7 @@ function fixture() {
 
 async function main() {
   const sourcePath = path.resolve(__dirname, '..', '..', 'dist', 'index.html');
-  assert.ok(fs.existsSync(sourcePath), 'Сначала выполните pnpm build');
+  assert.ok(fs.existsSync(sourcePath), 'Сначала выполните npm run build');
   const data = JSON.stringify(fixture()).replace(/</g, '\\u003C');
   const source = fs.readFileSync(sourcePath, 'utf8').replace('>_DATA_</script>', '>' + data + '</script>');
   const tempDir = path.resolve(__dirname, '..', '..', '.cache');
