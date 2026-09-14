@@ -9,10 +9,9 @@ if (files.length !== 1 || files[0] !== 'index.html') {
 }
 
 const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-const placeholders = html.match(/_DATA_/g) || [];
-
-if (placeholders.length !== 1) {
-  throw new Error('Плейсхолдер _DATA_ должен встречаться ровно один раз.');
+const dataScript = /<script\b[^>]*\bid=["']data["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+if (!dataScript || dataScript[1].trim() !== '_DATA_') {
+  throw new Error('В #data не найден плейсхолдер _DATA_.');
 }
 if (/<script\b[^>]*\bsrc\s*=/i.test(html)) {
   throw new Error('Найден внешний script src.');
