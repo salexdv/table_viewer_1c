@@ -1,0 +1,44 @@
+{
+  "name": "onec-table-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single-file просмотрщик таблиц и деревьев значений для поля HTML документа 1С",
+  "license": "MIT",
+  "scripts": {
+    "dev": "webpack serve --mode development --progress",
+    "build:webpack": "webpack --mode production --progress",
+    "build": "pnpm run build:webpack && node tools/make-single.js && node tools/check-single.js && node tools/check-es.js",
+    "check:single": "node tools/check-single.js",
+    "check:es": "node tools/check-es.js",
+    "test:unit": "mocha \"tests/unit/**/*.test.js\"",
+    "test:browser": "node tests/browser/smoke.js",
+    "test": "pnpm run test:unit && pnpm run build && pnpm run test:browser"
+  },
+  "browserslist": [
+    "safari >= 9",
+    "chrome >= 49"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/preset-env": "^7.28.3",
+    "acorn": "^8.15.0",
+    "autoprefixer": "^10.4.21",
+    "babel-loader": "^10.0.0",
+    "chai": "^4.5.0",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.4",
+    "mocha": "^11.7.2",
+    "postcss": "^8.5.6",
+    "postcss-loader": "^8.2.0",
+    "puppeteer-core": "^24.22.3",
+    "style-loader": "^4.0.0",
+    "terser-webpack-plugin": "^5.3.14",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.0.0"
+}

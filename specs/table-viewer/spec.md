@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Single-file просмотрщик таблиц и деревьев для 1С
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-14
 updated: 2026-09-14
