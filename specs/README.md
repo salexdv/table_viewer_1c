@@ -16,3 +16,7 @@
 
 Правила адаптированы из процесса SDD проекта
 [bsl_console](https://github.com/salexdv/bsl_console/blob/webpack/specs/README.md).
+
+## Завершённые спецификации
+
+- [`table-viewer`](done/table-viewer/spec.md) — автономный просмотрщик таблиц и деревьев для 1С.
