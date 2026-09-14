@@ -93,6 +93,47 @@ describe('модель данных', function () {
     assert.equal(visible[0].row.columns[1], 'Склад 1');
   });
 
+  it('объединяет выбранные значения через OR, а с текстовым фильтром — через AND', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Москва', 'Основной'] },
+      { columns: ['Казань', 'Основной'] },
+      { columns: ['Москва', 'Резервный'] }
+    ], ['Город', 'Склад']));
+    const state = model.makeTableState(data.tables[0]);
+    state.columnFilters[1] = 'основ';
+    state.valueFilters[0] = Object.create(null);
+    state.valueFilters[0].Москва = true;
+    state.valueFilters[0].Казань = true;
+    let visible = model.buildVisibleRows(data.tables[0], state, '');
+    assert.deepEqual(visible.map(function (item) { return item.row.columns[0]; }), ['Москва', 'Казань']);
+    state.valueFilters[0] = Object.create(null);
+    visible = model.buildVisibleRows(data.tables[0], state, '');
+    assert.equal(visible.length, 0);
+  });
+
+  it('строит доступные значения без собственных фильтров колонки', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Москва', 'Основной'] },
+      { columns: ['Казань', 'Основной'] },
+      { columns: ['Тула', 'Резервный'] },
+      { columns: [null, 'Основной'] },
+      { columns: [true, 'Основной'] },
+      { columns: [{ label: 'Москва', ref: 'ref' }, 'Основной'] }
+    ], ['Город', 'Склад']));
+    const state = model.makeTableState(data.tables[0]);
+    state.columnFilters[0] = 'моск';
+    state.columnFilters[1] = 'основ';
+    state.valueFilters[0] = Object.create(null);
+    state.valueFilters[0].Москва = true;
+    const values = model.getAvailableValues(data.tables[0], state, '', 0);
+    assert.deepEqual(values, [
+      { value: 'Да', label: 'Да' },
+      { value: 'Казань', label: 'Казань' },
+      { value: 'Москва', label: 'Москва' },
+      { value: '', label: '(Пустые)' }
+    ]);
+  });
+
   it('исключает свёрнутых потомков из итогов', function () {
     const data = model.parseData(tableData([
       { columns: ['10'], children: [{ columns: ['20'] }] },
@@ -115,5 +156,26 @@ describe('модель данных', function () {
       startRow: 0, endRow: 1, startColumn: 0, endColumn: 2
     }, [0, 1, 2]);
     assert.deepEqual(total, { count: 4, sum: 33 });
+  });
+
+  it('считает пять агрегатов и различает однородные проценты', function () {
+    assert.deepEqual(model.calculateAggregate(['10', '20', null], 'sum'), { count: 2, value: 30, kind: 'number' });
+    assert.deepEqual(model.calculateAggregate(['10', '20'], 'average'), { count: 2, value: 15, kind: 'number' });
+    assert.deepEqual(model.calculateAggregate(['10', '20'], 'min'), { count: 2, value: 10, kind: 'number' });
+    assert.deepEqual(model.calculateAggregate(['10', '20'], 'max'), { count: 2, value: 20, kind: 'number' });
+    assert.deepEqual(model.calculateAggregate(['10', '20'], 'count'), { count: 2, value: 2, kind: 'number' });
+    assert.deepEqual(model.calculateAggregate([], 'average'), { count: 0, value: null, kind: 'number' });
+    assert.equal(model.calculateAggregate(['10%', '20%'], 'average').kind, 'percent');
+    assert.equal(model.calculateAggregate(['10%', '20'], 'sum').kind, 'number');
+  });
+
+  it('применяет окно строк и возвращает размеры скрытых диапазонов', function () {
+    const rows = ['a', 'b', 'c', 'd', 'e'];
+    assert.deepEqual(model.applyRowWindow(rows, { start: 1, end: 3 }), {
+      rows: ['b', 'c', 'd'], hiddenBefore: 1, hiddenAfter: 1
+    });
+    assert.deepEqual(model.applyRowWindow(rows, null), {
+      rows: rows, hiddenBefore: 0, hiddenAfter: 0
+    });
   });
 });

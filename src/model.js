@@ -205,7 +205,11 @@ function normalizeSearch(value) {
   return String(value || '').trim().toLocaleLowerCase();
 }
 
-function rowMatches(row, state, globalFilter) {
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function rowMatches(row, state, globalFilter, ignoredColumn) {
   var globalNeedle = normalizeSearch(globalFilter);
   if (globalNeedle) {
     var globalMatch = false;
@@ -219,13 +223,17 @@ function rowMatches(row, state, globalFilter) {
   }
 
   for (var index = 0; index < state.columnFilters.length; index += 1) {
+    if (index === ignoredColumn) continue;
     var filter = state.columnFilters[index];
-    if (!filter) continue;
     var actual = normalizeSearch(cellText(row.columns[index]));
-    var expected = normalizeSearch(filter);
-    if (state.exactFilters[index]) {
-      if (actual !== expected) return false;
-    } else if (actual.indexOf(expected) === -1) return false;
+    if (filter) {
+      var expected = normalizeSearch(filter);
+      if (state.exactFilters[index]) {
+        if (actual !== expected) return false;
+      } else if (actual.indexOf(expected) === -1) return false;
+    }
+    var selected = state.valueFilters && state.valueFilters[index];
+    if (selected && !hasOwn(selected, cellText(row.columns[index]))) return false;
   }
   return true;
 }
@@ -234,6 +242,7 @@ function hasActiveFilters(state, globalFilter) {
   if (normalizeSearch(globalFilter)) return true;
   for (var index = 0; index < state.columnFilters.length; index += 1) {
     if (normalizeSearch(state.columnFilters[index])) return true;
+    if (state.valueFilters && state.valueFilters[index]) return true;
   }
   return false;
 }
@@ -338,26 +347,115 @@ function buildVisibleRows(table, state, globalFilter) {
   return visible;
 }
 
+function getAvailableValues(table, state, globalFilter, columnIndex) {
+  var nodes = allNodes(table);
+  var seen = Object.create(null);
+  var values = [];
+  for (var index = 0; index < nodes.length; index += 1) {
+    if (!rowMatches(nodes[index], state, globalFilter, columnIndex)) continue;
+    var value = cellText(nodes[index].columns[columnIndex]);
+    if (hasOwn(seen, value)) continue;
+    seen[value] = true;
+    values.push({ value: value, label: value === '' ? '(Пустые)' : value });
+  }
+  var type = table.columnTypes[columnIndex];
+  values.sort(function (left, right) {
+    return compareCells(left.value, right.value, type);
+  });
+  return values;
+}
+
+function applyRowWindow(rows, rowWindow) {
+  if (!rowWindow) return { rows: rows, hiddenBefore: 0, hiddenAfter: 0 };
+  var start = Math.max(0, Math.min(rows.length, Number(rowWindow.start) || 0));
+  var rawEnd = rowWindow.end === null || rowWindow.end === undefined ? rows.length - 1 : Number(rowWindow.end);
+  var end = Math.max(-1, Math.min(rows.length - 1, isFinite(rawEnd) ? rawEnd : rows.length - 1));
+  if (end < start) return { rows: [], hiddenBefore: start, hiddenAfter: Math.max(0, rows.length - start) };
+  return {
+    rows: rows.slice(start, end + 1),
+    hiddenBefore: start,
+    hiddenAfter: Math.max(0, rows.length - end - 1)
+  };
+}
+
 function makeTableState(table) {
   var widths = [];
   var filters = [];
+  var valueFilters = [];
+  var columnAggregates = [];
   for (var index = 0; index < table.columns.length; index += 1) {
     widths.push(Math.max(100, Math.min(280, table.columns[index].length * 9 + 36)));
     filters.push('');
+    valueFilters.push(null);
+    columnAggregates.push('sum');
   }
   return {
     collapsed: false,
     collapsedRows: {},
     columnFilters: filters,
     exactFilters: {},
+    valueFilters: valueFilters,
+    columnAggregates: columnAggregates,
     hiddenColumns: {},
     pinnedColumns: [],
     pinnedRows: [],
     widths: widths,
     scale: 100,
     sort: { column: -1, direction: null },
-    selection: null
+    selection: null,
+    rowWindow: null
   };
+}
+
+function calculateAggregate(values, aggregate) {
+  var count = 0;
+  var sum = 0;
+  var minimum = null;
+  var maximum = null;
+  var kind = null;
+  var mixedKinds = false;
+  for (var index = 0; index < values.length; index += 1) {
+    var parsed = parseNumeric(values[index]);
+    if (!parsed) continue;
+    count += 1;
+    sum += parsed.value;
+    if (minimum === null || parsed.value < minimum) minimum = parsed.value;
+    if (maximum === null || parsed.value > maximum) maximum = parsed.value;
+    if (kind === null) kind = parsed.kind;
+    else if (kind !== parsed.kind) mixedKinds = true;
+  }
+  var value = null;
+  if (aggregate === 'count') value = count;
+  else if (aggregate === 'sum') value = sum;
+  else if (aggregate === 'average' && count) value = sum / count;
+  else if (aggregate === 'min') value = minimum;
+  else if (aggregate === 'max') value = maximum;
+  return { count: count, value: value, kind: mixedKinds ? 'number' : (kind || 'number') };
+}
+
+function calculateColumnAggregate(table, visibleRows, columnIndex, aggregate) {
+  var values = [];
+  for (var index = 0; index < visibleRows.length; index += 1) values.push(visibleRows[index].row.columns[columnIndex]);
+  var result = calculateAggregate(values, aggregate);
+  if (aggregate !== 'count') result.kind = table.columnTypes[columnIndex] === 'percent' ? 'percent' : 'number';
+  return result;
+}
+
+function calculateSelectionAggregate(table, visibleRows, selection, visibleColumns, aggregate) {
+  if (!selection) return calculateAggregate([], aggregate);
+  var rowStart = Math.min(selection.startRow, selection.endRow);
+  var rowEnd = Math.max(selection.startRow, selection.endRow);
+  var columnStart = Math.min(selection.startColumn, selection.endColumn);
+  var columnEnd = Math.max(selection.startColumn, selection.endColumn);
+  var values = [];
+  for (var rowIndex = rowStart; rowIndex <= rowEnd && rowIndex < visibleRows.length; rowIndex += 1) {
+    for (var visibleIndex = columnStart; visibleIndex <= columnEnd && visibleIndex < visibleColumns.length; visibleIndex += 1) {
+      var column = visibleColumns[visibleIndex];
+      var type = table.columnTypes[column];
+      if (type === 'number' || type === 'percent') values.push(visibleRows[rowIndex].row.columns[column]);
+    }
+  }
+  return calculateAggregate(values, aggregate);
 }
 
 function calculateTotals(table, visibleRows) {
@@ -377,27 +475,8 @@ function calculateTotals(table, visibleRows) {
 }
 
 function calculateSelectionSum(table, visibleRows, selection, visibleColumns) {
-  if (!selection) return { count: 0, sum: 0 };
-  var rowStart = Math.min(selection.startRow, selection.endRow);
-  var rowEnd = Math.max(selection.startRow, selection.endRow);
-  var columnStart = Math.min(selection.startColumn, selection.endColumn);
-  var columnEnd = Math.max(selection.startColumn, selection.endColumn);
-  var count = 0;
-  var sum = 0;
-
-  for (var rowIndex = rowStart; rowIndex <= rowEnd && rowIndex < visibleRows.length; rowIndex += 1) {
-    for (var visibleIndex = columnStart; visibleIndex <= columnEnd && visibleIndex < visibleColumns.length; visibleIndex += 1) {
-      var column = visibleColumns[visibleIndex];
-      var type = table.columnTypes[column];
-      if (type !== 'number' && type !== 'percent') continue;
-      var parsed = parseNumeric(visibleRows[rowIndex].row.columns[column]);
-      if (parsed) {
-        count += 1;
-        sum += parsed.value;
-      }
-    }
-  }
-  return { count: count, sum: sum };
+  var result = calculateSelectionAggregate(table, visibleRows, selection, visibleColumns, 'sum');
+  return { count: result.count, sum: result.value };
 }
 
 function formatNumber(value, kind) {
@@ -415,6 +494,11 @@ module.exports = {
   detectColumnTypes: detectColumnTypes,
   makeTableState: makeTableState,
   buildVisibleRows: buildVisibleRows,
+  getAvailableValues: getAvailableValues,
+  applyRowWindow: applyRowWindow,
+  calculateAggregate: calculateAggregate,
+  calculateColumnAggregate: calculateColumnAggregate,
+  calculateSelectionAggregate: calculateSelectionAggregate,
   calculateTotals: calculateTotals,
   calculateSelectionSum: calculateSelectionSum,
   formatNumber: formatNumber,

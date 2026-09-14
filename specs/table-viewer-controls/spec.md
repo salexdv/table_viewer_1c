@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Агрегаты, фильтры значений и управление диапазоном строк
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-14
 updated: 2026-09-14
