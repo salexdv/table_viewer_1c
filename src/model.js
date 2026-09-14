@@ -378,13 +378,39 @@ function applyRowWindow(rows, rowWindow) {
   };
 }
 
+function initialColumnWidth(table, nodes, columnIndex) {
+  var headerWidth = table.columns[columnIndex].length * 8 + 48;
+  var contentWidth = 0;
+  for (var index = 0; index < nodes.length; index += 1) {
+    contentWidth = Math.max(contentWidth, cellText(nodes[index].columns[columnIndex]).length * 7 + 22);
+  }
+  return Math.max(88, Math.min(360, Math.max(headerWidth, contentWidth)));
+}
+
+function initialRowNumberWidth(table) {
+  var width = 56;
+  var stack = [];
+  for (var rootIndex = table.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
+    stack.push({ node: table.rows[rootIndex], number: String(rootIndex + 1), depth: 0 });
+  }
+  while (stack.length) {
+    var item = stack.pop();
+    width = Math.max(width, 12 + 20 + item.depth * 12 + item.number.length * 8);
+    for (var childIndex = item.node.children.length - 1; childIndex >= 0; childIndex -= 1) {
+      stack.push({ node: item.node.children[childIndex], number: item.number + '.' + (childIndex + 1), depth: item.depth + 1 });
+    }
+  }
+  return Math.min(220, width);
+}
+
 function makeTableState(table) {
   var widths = [];
   var filters = [];
   var valueFilters = [];
   var columnAggregates = [];
+  var nodes = allNodes(table);
   for (var index = 0; index < table.columns.length; index += 1) {
-    widths.push(Math.max(100, Math.min(280, table.columns[index].length * 9 + 36)));
+    widths.push(initialColumnWidth(table, nodes, index));
     filters.push('');
     valueFilters.push(null);
     columnAggregates.push('sum');
@@ -399,6 +425,7 @@ function makeTableState(table) {
     hiddenColumns: {},
     pinnedColumns: [],
     pinnedRows: [],
+    rowNumberWidth: initialRowNumberWidth(table),
     widths: widths,
     scale: 100,
     sort: { column: -1, direction: null },

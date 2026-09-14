@@ -178,4 +178,14 @@ describe('модель данных', function () {
       rows: rows, hiddenBefore: 0, hiddenAfter: 0
     });
   });
+
+  it('подбирает начальные ширины колонок по содержимому и глубине номера', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Коротко'], children: [{ columns: ['Очень длинное содержимое ячейки для проверки ширины'] }] }
+    ], ['Имя']));
+    const state = model.makeTableState(data.tables[0]);
+    assert.isAbove(state.widths[0], 300);
+    assert.isAtMost(state.widths[0], 360);
+    assert.isAbove(state.rowNumberWidth, 56);
+  });
 });

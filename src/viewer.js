@@ -1,6 +1,13 @@
 var model = require('./model');
 
 var currentApp = null;
+var AGGREGATES = [
+  { value: 'sum', label: 'Сумма' },
+  { value: 'average', label: 'Среднее' },
+  { value: 'min', label: 'Минимум' },
+  { value: 'max', label: 'Максимум' },
+  { value: 'count', label: 'Количество' }
+];
 
 function element(tag, className, text) {
   var node = document.createElement(tag);
@@ -30,6 +37,26 @@ function arrayIndex(array, value) {
 function removeValue(array, value) {
   var index = arrayIndex(array, value);
   if (index !== -1) array.splice(index, 1);
+}
+
+function aggregateLabel(value) {
+  for (var index = 0; index < AGGREGATES.length; index += 1) {
+    if (AGGREGATES[index].value === value) return AGGREGATES[index].label;
+  }
+  return AGGREGATES[0].label;
+}
+
+function formatAggregate(result, aggregate) {
+  if (result.value === null) return '—';
+  if (aggregate === 'count') return String(result.value);
+  return model.formatNumber(result.value, result.kind);
+}
+
+function copySelectionMap(source) {
+  var target = Object.create(null);
+  if (!source) return target;
+  for (var key in source) if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = true;
+  return target;
 }
 
 function getDemoData() {
@@ -94,7 +121,10 @@ function ViewerApp(root) {
   this.bridge = createBridge();
   this.menu = null;
   this.columnPanel = null;
+  this.filterPanel = null;
   this.globalSearchTimer = null;
+  this.selectionAggregate = 'sum';
+  this.selectionView = null;
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
   document.addEventListener('mouseup', this.onDocumentMouseUp);
@@ -110,18 +140,27 @@ ViewerApp.prototype.load = function (input) {
       var raw = dataNode.textContent.trim();
       if (raw.length === 6 && raw.charCodeAt(0) === 95 && raw.charCodeAt(1) === 68 && raw.charCodeAt(2) === 65 && raw.charCodeAt(3) === 84 && raw.charCodeAt(4) === 65 && raw.charCodeAt(5) === 95) {
         if (/^https?:$/.test(window.location.protocol)) source = getDemoData();
-        else throw new Error('$: плейсхолдер _DATA_ не заменён данными');
+        else { this.showWaiting(); return false; }
       } else source = raw;
     }
     this.data = model.parseData(source);
     this.states = this.data.tables.map(model.makeTableState);
     this.globalFilter = '';
+    this.selectionAggregate = 'sum';
+    this.selectionView = null;
     this.render();
     return true;
   } catch (error) {
     this.showError(error);
     return false;
   }
+};
+
+ViewerApp.prototype.showWaiting = function () {
+  clear(this.root);
+  var waiting = element('div', 'waiting-state', 'Ожидение данных...');
+  waiting.setAttribute('role', 'status');
+  this.root.appendChild(waiting);
 };
 
 ViewerApp.prototype.showError = function (error) {
@@ -148,6 +187,7 @@ ViewerApp.prototype.render = function () {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
     self.globalSearchTimer = setTimeout(function () {
       self.globalFilter = search.value;
+      self.resetRowWindows();
       self.clearSelection();
       self.refreshTables();
     }, 120);
@@ -160,8 +200,24 @@ ViewerApp.prototype.render = function () {
   addButton(toolbar, 'Развернуть все', 'Показать все таблицы и узлы дерева', function () { self.expandAll(); });
   addButton(toolbar, 'Свернуть все', 'Свернуть все таблицы и узлы дерева', function () { self.collapseAll(); });
   addButton(toolbar, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary');
-  this.selectionSummary = element('output', 'selection-summary', 'Сумма: 0');
-  toolbar.appendChild(this.selectionSummary);
+  var selectionControl = element('div', 'selection-control');
+  this.selectionAggregateSelect = element('select', 'selection-aggregate');
+  this.selectionAggregateSelect.setAttribute('aria-label', 'Функция для выделенных ячеек');
+  for (var aggregateIndex = 0; aggregateIndex < AGGREGATES.length; aggregateIndex += 1) {
+    var option = element('option', '', AGGREGATES[aggregateIndex].label);
+    option.value = AGGREGATES[aggregateIndex].value;
+    this.selectionAggregateSelect.appendChild(option);
+  }
+  this.selectionAggregateSelect.value = this.selectionAggregate;
+  this.selectionAggregateSelect.disabled = true;
+  this.selectionAggregateSelect.addEventListener('change', function () {
+    self.selectionAggregate = self.selectionAggregateSelect.value;
+    if (self.selectionView) self.updateSelection(self.selectionView);
+  });
+  selectionControl.appendChild(this.selectionAggregateSelect);
+  this.selectionSummary = element('output', 'selection-summary', 'Числа не выделены');
+  selectionControl.appendChild(this.selectionSummary);
+  toolbar.appendChild(selectionControl);
   this.root.appendChild(toolbar);
   this.tablesHost = element('main', 'tables-host');
   this.root.appendChild(this.tablesHost);
@@ -183,6 +239,10 @@ ViewerApp.prototype.refreshTables = function () {
   var old = this.tablesHost.querySelector('.global-empty-state');
   if (old) old.parentNode.removeChild(old);
   if (!visible && String(this.globalFilter || '').trim()) this.tablesHost.appendChild(element('div', 'empty-state global-empty-state', 'Совпадений не найдено.'));
+};
+
+ViewerApp.prototype.resetRowWindows = function () {
+  for (var index = 0; index < this.states.length; index += 1) this.states[index].rowWindow = null;
 };
 
 ViewerApp.prototype.toggleColumnPanel = function (anchor) {
@@ -241,6 +301,114 @@ ViewerApp.prototype.closeColumnPanel = function () {
 ViewerApp.prototype.onOutsidePointer = function (event) {
   if (this.menu && !this.menu.contains(event.target)) this.closeMenu();
   if (this.columnPanel && !this.columnPanel.contains(event.target)) this.closeColumnPanel();
+  if (this.filterPanel && !this.filterPanel.contains(event.target)) this.closeFilterPanel();
+};
+
+ViewerApp.prototype.openAggregateMenu = function (view, columnIndex, anchor) {
+  var self = this;
+  this.closeMenu();
+  var menu = element('div', 'context-menu aggregate-menu');
+  menu.setAttribute('role', 'menu');
+  for (var index = 0; index < AGGREGATES.length; index += 1) {
+    (function (aggregate) {
+      var active = view.state.columnAggregates[columnIndex] === aggregate.value;
+      addButton(menu, (active ? '✓ ' : '') + aggregate.label, '', function () {
+        view.state.columnAggregates[columnIndex] = aggregate.value;
+        anchor.title = 'Функция итога: ' + aggregate.label;
+        anchor.setAttribute('aria-label', anchor.title);
+        self.closeMenu();
+        view.renderFooter();
+      }, 'menu-item' + (active ? ' menu-item-active' : ''));
+    })(AGGREGATES[index]);
+  }
+  document.body.appendChild(menu);
+  this.menu = menu;
+  var rect = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 4)) + 'px';
+  menu.style.top = Math.max(4, Math.min(rect.bottom + 3, window.innerHeight - menu.offsetHeight - 4)) + 'px';
+};
+
+ViewerApp.prototype.closeFilterPanel = function () {
+  if (this.filterPanel && this.filterPanel.parentNode) this.filterPanel.parentNode.removeChild(this.filterPanel);
+  this.filterPanel = null;
+};
+
+ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
+  var self = this;
+  this.closeFilterPanel();
+  this.closeMenu();
+  var values = model.getAvailableValues(view.table, view.state, this.globalFilter, columnIndex);
+  var active = view.state.valueFilters[columnIndex];
+  var draft = copySelectionMap(active);
+  if (!active) for (var allIndex = 0; allIndex < values.length; allIndex += 1) draft[values[allIndex].value] = true;
+
+  var panel = element('div', 'value-filter-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Фильтр значений колонки ' + view.table.columns[columnIndex]);
+  var search = element('input', 'value-filter-search');
+  search.type = 'search'; search.placeholder = 'Найти значение…'; search.setAttribute('aria-label', 'Поиск значений');
+  panel.appendChild(search);
+  var commands = element('div', 'value-filter-commands'); panel.appendChild(commands);
+  var list = element('div', 'value-filter-list'); list.setAttribute('role', 'group');
+  var canvas = element('div', 'value-filter-canvas'); list.appendChild(canvas); panel.appendChild(list);
+  var actions = element('div', 'value-filter-actions'); panel.appendChild(actions);
+  var filtered = values.slice();
+  var itemHeight = 27;
+
+  function filterValues() {
+    var needle = String(search.value || '').trim().toLocaleLowerCase();
+    filtered = [];
+    for (var index = 0; index < values.length; index += 1) {
+      if (!needle || values[index].label.toLocaleLowerCase().indexOf(needle) !== -1) filtered.push(values[index]);
+    }
+    list.scrollTop = 0;
+    renderList();
+  }
+  function renderList() {
+    clear(canvas);
+    canvas.style.height = filtered.length * itemHeight + 'px';
+    var start = Math.max(0, Math.floor(list.scrollTop / itemHeight) - 3);
+    var end = Math.min(filtered.length, start + Math.ceil((list.clientHeight || 220) / itemHeight) + 6);
+    for (var index = start; index < end; index += 1) {
+      (function (item, position) {
+        var label = element('label', 'value-filter-option');
+        label.style.top = position * itemHeight + 'px';
+        var checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = !!draft[item.value];
+        checkbox.addEventListener('change', function () {
+          if (checkbox.checked) draft[item.value] = true; else delete draft[item.value];
+        });
+        label.appendChild(checkbox); label.appendChild(document.createTextNode(item.label)); canvas.appendChild(label);
+      })(filtered[index], index);
+    }
+  }
+  function setFiltered(checked) {
+    for (var index = 0; index < filtered.length; index += 1) {
+      if (checked) draft[filtered[index].value] = true; else delete draft[filtered[index].value];
+    }
+    renderList();
+  }
+  addButton(commands, 'Выбрать все', '', function () { setFiltered(true); }, 'button button-small');
+  addButton(commands, 'Снять все', '', function () { setFiltered(false); }, 'button button-small');
+  addButton(actions, 'Применить', '', function () {
+    var allSelected = values.length > 0;
+    for (var index = 0; index < values.length && allSelected; index += 1) if (!draft[values[index].value]) allSelected = false;
+    view.state.valueFilters[columnIndex] = allSelected ? null : copySelectionMap(draft);
+    view.state.rowWindow = null;
+    self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
+  }, 'button button-primary button-small');
+  addButton(actions, 'Отмена', '', function () { self.closeFilterPanel(); }, 'button button-small');
+  addButton(actions, 'Очистить фильтр', '', function () {
+    view.state.valueFilters[columnIndex] = null; view.state.rowWindow = null;
+    self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
+  }, 'button button-small');
+  search.addEventListener('input', filterValues);
+  list.addEventListener('scroll', renderList);
+  panel.addEventListener('click', function (event) { event.stopPropagation(); });
+  document.body.appendChild(panel); this.filterPanel = panel;
+  var rect = anchor.getBoundingClientRect();
+  panel.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 4)) + 'px';
+  panel.style.top = Math.max(4, Math.min(rect.bottom + 3, window.innerHeight - panel.offsetHeight - 4)) + 'px';
+  renderList(); search.focus();
 };
 
 ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
@@ -262,10 +430,19 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
     else view.state.pinnedRows.push(entry.id);
     self.closeMenu(); view.refreshData();
   }, 'menu-item');
+  if (!view.table.isTree) {
+    addButton(menu, 'Свернуть строки до', '', function () {
+      self.closeMenu(); view.hideRowsAt(entry, true);
+    }, 'menu-item');
+    addButton(menu, 'Свернуть строки после', '', function () {
+      self.closeMenu(); view.hideRowsAt(entry, false);
+    }, 'menu-item');
+  }
   if (columnIndex >= 0) {
     addButton(menu, 'Отбор по значению', '', function () {
       view.state.columnFilters[columnIndex] = model.cellText(entry.row.columns[columnIndex]);
       view.state.exactFilters[columnIndex] = true;
+      view.state.rowWindow = null;
       self.clearSelection(); self.closeMenu(); view.renderGrid();
     }, 'menu-item');
   }
@@ -299,21 +476,26 @@ ViewerApp.prototype.stopSelection = function () { this.draggingView = null; };
 ViewerApp.prototype.clearSelection = function () {
   for (var index = 0; index < this.states.length; index += 1) this.states[index].selection = null;
   this.draggingView = null;
-  if (this.selectionSummary) this.selectionSummary.textContent = 'Сумма: 0';
+  this.selectionView = null;
+  if (this.selectionSummary) this.selectionSummary.textContent = 'Числа не выделены';
+  if (this.selectionAggregateSelect) this.selectionAggregateSelect.disabled = true;
 };
 ViewerApp.prototype.updateSelection = function (view) {
-  var total = model.calculateSelectionSum(view.table, view.visibleRows, view.state.selection, view.visibleColumns);
-  this.selectionSummary.textContent = 'Выделено чисел: ' + total.count + ' · Сумма: ' + model.formatNumber(total.sum, 'number');
+  var result = model.calculateSelectionAggregate(view.table, view.visibleRows, view.state.selection, view.visibleColumns, this.selectionAggregate);
+  this.selectionView = result.count ? view : null;
+  this.selectionAggregateSelect.disabled = !result.count;
+  if (!result.count) { this.selectionSummary.textContent = 'Числа не выделены'; return; }
+  this.selectionSummary.textContent = 'Выделено чисел: ' + result.count + ' · ' + aggregateLabel(this.selectionAggregate) + ': ' + formatAggregate(result, this.selectionAggregate);
 };
 
 ViewerApp.prototype.expandAll = function () {
-  for (var index = 0; index < this.states.length; index += 1) { this.states[index].collapsed = false; this.states[index].collapsedRows = {}; }
+  for (var index = 0; index < this.states.length; index += 1) { this.states[index].collapsed = false; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; }
   this.clearSelection();
   for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
 };
 ViewerApp.prototype.collapseAll = function () {
   for (var index = 0; index < this.states.length; index += 1) {
-    this.states[index].collapsed = true; this.states[index].collapsedRows = {};
+    this.states[index].collapsed = true; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null;
     var nodes = model.allNodes(this.data.tables[index]);
     for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) if (nodes[nodeIndex].children.length) this.states[index].collapsedRows[nodes[nodeIndex].id] = true;
   }
@@ -322,11 +504,11 @@ ViewerApp.prototype.collapseAll = function () {
 };
 ViewerApp.prototype.setTableCollapsed = function (tableIndex, collapsed) {
   if (!this.states[tableIndex]) return false;
-  this.states[tableIndex].collapsed = !!collapsed; this.clearSelection(); this.tableViews[tableIndex].updateCollapsed(); return true;
+  this.states[tableIndex].collapsed = !!collapsed; this.states[tableIndex].rowWindow = null; this.clearSelection(); this.tableViews[tableIndex].updateCollapsed(); return true;
 };
 ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
   if (!this.states[tableIndex]) return false;
-  var state = this.states[tableIndex]; state.collapsedRows = {};
+  var state = this.states[tableIndex]; state.collapsedRows = {}; state.rowWindow = null;
   if (!expanded) {
     var nodes = model.allNodes(this.data.tables[tableIndex]);
     for (var index = 0; index < nodes.length; index += 1) if (nodes[index].children.length) state.collapsedRows[nodes[index].id] = true;
@@ -337,12 +519,13 @@ ViewerApp.prototype.destroy = function () {
   if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
   document.removeEventListener('mouseup', this.onDocumentMouseUp);
   document.removeEventListener('click', this.onDocumentMouseDown);
-  this.closeMenu(); this.closeColumnPanel(); this.bridge.destroy(); clear(this.root);
+  this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.bridge.destroy(); clear(this.root);
 };
 
 function TableView(app, table, state, tableIndex) {
   this.app = app; this.table = table; this.state = state; this.tableIndex = tableIndex;
-  this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
+  this.allVisibleRows = []; this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
+  this.hiddenBefore = 0; this.hiddenAfter = 0; this.filterButtons = {};
   this.rowHeight = 26; this.scrollTimer = null; this.card = this.createCard(); this.renderGrid();
 }
 
@@ -350,7 +533,7 @@ TableView.prototype.createCard = function () {
   var self = this;
   var card = element('section', 'table-card'); card.setAttribute('data-table-index', String(this.tableIndex));
   var titlebar = element('header', 'table-titlebar');
-  this.collapseButton = addButton(titlebar, '−', 'Свернуть таблицу', function () { self.state.collapsed = !self.state.collapsed; self.app.clearSelection(); self.updateCollapsed(); }, 'icon-button');
+  this.collapseButton = addButton(titlebar, '−', 'Свернуть таблицу', function () { self.state.collapsed = !self.state.collapsed; self.state.rowWindow = null; self.app.clearSelection(); self.updateCollapsed(); }, 'icon-button');
   titlebar.appendChild(element('strong', 'table-title', this.table.name || 'Таблица ' + (this.tableIndex + 1)));
   this.count = element('span', 'table-count'); titlebar.appendChild(this.count); titlebar.appendChild(element('span', 'title-spacer'));
   if (this.table.isTree) {
@@ -373,7 +556,7 @@ TableView.prototype.getColumnLayout = function () {
   }
   for (var index = 0; index < this.table.columns.length; index += 1) if (!this.state.hiddenColumns[index] && !seen[index]) regular.push(index);
   this.visibleColumns = pinned.concat(regular);
-  var numberWidth = Math.round(84 * scale); var left = numberWidth; var columns = [];
+  var numberWidth = Math.max(42, Math.round(this.state.rowNumberWidth * scale)); var left = numberWidth; var columns = [];
   for (var visibleIndex = 0; visibleIndex < this.visibleColumns.length; visibleIndex += 1) {
     var column = this.visibleColumns[visibleIndex]; var isPinned = arrayIndex(pinned, column) !== -1; var width = Math.max(60, Math.round(this.state.widths[column] * scale));
     columns.push({ modelIndex: column, visibleIndex: visibleIndex, width: width, pinned: isPinned, left: isPinned ? left : 0 });
@@ -392,7 +575,7 @@ TableView.prototype.numberCell = function (entry) {
   cell.style.width = this.layout.numberWidth + 'px'; cell.style.minWidth = this.layout.numberWidth + 'px'; cell.style.maxWidth = this.layout.numberWidth + 'px'; cell.style.position = '-webkit-sticky'; cell.style.position = 'sticky'; cell.style.left = '0'; cell.style.zIndex = '5';
   cell.style.paddingLeft = Math.min(4 + entry.depth * 12, Math.max(4, this.layout.numberWidth - 50)) + 'px';
   if (entry.hasChildren) {
-    var toggle = addButton(cell, entry.expanded ? '−' : '+', entry.expanded ? 'Свернуть строку' : 'Развернуть строку', function (event) { event.stopPropagation(); if (entry.expanded) self.state.collapsedRows[entry.id] = true; else delete self.state.collapsedRows[entry.id]; self.app.clearSelection(); self.refreshData(); }, 'tree-toggle');
+    var toggle = addButton(cell, entry.expanded ? '−' : '+', entry.expanded ? 'Свернуть строку' : 'Развернуть строку', function (event) { event.stopPropagation(); if (entry.expanded) self.state.collapsedRows[entry.id] = true; else delete self.state.collapsedRows[entry.id]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); }, 'tree-toggle');
     toggle.setAttribute('aria-expanded', entry.expanded ? 'true' : 'false');
   } else cell.appendChild(element('span', 'tree-spacer', ''));
   cell.appendChild(element('span', 'row-number', entry.number));
@@ -402,16 +585,25 @@ TableView.prototype.numberCell = function (entry) {
 
 TableView.prototype.renderGrid = function () {
   var self = this; var oldTop = this.viewport ? this.viewport.scrollTop : 0; var oldLeft = this.viewport ? this.viewport.scrollLeft : 0;
-  clear(this.gridHost); this.layout = this.getColumnLayout(); this.rowHeight = Math.max(20, Math.round(26 * this.state.scale / 100));
+  clear(this.gridHost); this.filterButtons = {}; this.layout = this.getColumnLayout(); this.rowHeight = Math.max(20, Math.round(26 * this.state.scale / 100));
   this.viewport = element('div', 'grid-viewport'); this.viewport.setAttribute('role', 'grid'); this.viewport.setAttribute('aria-label', this.table.name);
   this.content = element('div', 'grid-content'); this.content.style.width = this.layout.totalWidth + 'px'; this.content.style.minWidth = '100%'; this.viewport.appendChild(this.content); this.gridHost.appendChild(this.viewport);
   this.header = element('div', 'grid-row header-row'); this.header.setAttribute('role', 'row'); this.header.style.height = this.rowHeight + 'px';
-  var numberHeader = element('div', 'grid-cell header-cell number-cell', '№'); numberHeader.setAttribute('role', 'columnheader'); numberHeader.style.width = this.layout.numberWidth + 'px'; numberHeader.style.minWidth = this.layout.numberWidth + 'px'; numberHeader.style.maxWidth = this.layout.numberWidth + 'px'; numberHeader.style.position = '-webkit-sticky'; numberHeader.style.position = 'sticky'; numberHeader.style.left = '0'; numberHeader.style.zIndex = '9'; this.header.appendChild(numberHeader);
+  var numberHeader = element('div', 'grid-cell header-cell number-cell', '№'); numberHeader.setAttribute('role', 'columnheader'); numberHeader.style.width = this.layout.numberWidth + 'px'; numberHeader.style.minWidth = this.layout.numberWidth + 'px'; numberHeader.style.maxWidth = this.layout.numberWidth + 'px'; numberHeader.style.position = '-webkit-sticky'; numberHeader.style.position = 'sticky'; numberHeader.style.left = '0'; numberHeader.style.zIndex = '9';
+  var numberResizer = element('span', 'column-resizer number-resizer'); numberResizer.title = 'Изменить ширину колонки номеров'; numberResizer.addEventListener('mousedown', function (event) { self.beginNumberResize(event); }); numberHeader.appendChild(numberResizer); this.header.appendChild(numberHeader);
   for (var headerIndex = 0; headerIndex < this.layout.columns.length; headerIndex += 1) {
     (function (layout) {
       var cell = element('div', 'grid-cell header-cell'); cell.setAttribute('role', 'columnheader'); self.styleCell(cell, layout, true);
       var sort = self.state.sort; var indicator = sort.column === layout.modelIndex ? (sort.direction === 'asc' ? ' ↑' : ' ↓') : '';
       var button = element('button', 'sort-button', self.table.columns[layout.modelIndex] + indicator); button.type = 'button'; button.title = 'Сортировать по колонке'; button.addEventListener('click', function () { self.toggleSort(layout.modelIndex); }); cell.appendChild(button);
+      var type = self.table.columnTypes[layout.modelIndex];
+      if (type === 'number' || type === 'percent') {
+        var aggregateButton = element('button', 'aggregate-button', 'ƒ'); aggregateButton.type = 'button';
+        aggregateButton.title = 'Функция итога: ' + aggregateLabel(self.state.columnAggregates[layout.modelIndex]);
+        aggregateButton.setAttribute('aria-label', aggregateButton.title);
+        aggregateButton.addEventListener('click', function (event) { event.stopPropagation(); self.app.openAggregateMenu(self, layout.modelIndex, aggregateButton); });
+        cell.appendChild(aggregateButton);
+      }
       var resizer = element('span', 'column-resizer'); resizer.title = 'Изменить ширину колонки'; resizer.addEventListener('mousedown', function (event) { self.beginResize(event, layout.modelIndex); }); cell.appendChild(resizer); self.header.appendChild(cell);
     })(this.layout.columns[headerIndex]);
   }
@@ -420,13 +612,23 @@ TableView.prototype.renderGrid = function () {
   var filterNumber = element('div', 'grid-cell filter-cell number-cell'); filterNumber.style.width = this.layout.numberWidth + 'px'; filterNumber.style.minWidth = this.layout.numberWidth + 'px'; filterNumber.style.maxWidth = this.layout.numberWidth + 'px'; filterNumber.style.position = '-webkit-sticky'; filterNumber.style.position = 'sticky'; filterNumber.style.left = '0'; filterNumber.style.zIndex = '9'; this.filterRow.appendChild(filterNumber);
   for (var filterIndex = 0; filterIndex < this.layout.columns.length; filterIndex += 1) {
     (function (layout) {
-      var cell = element('div', 'grid-cell filter-cell'); self.styleCell(cell, layout, true); var input = element('input', 'column-filter'); input.type = 'search'; input.placeholder = 'Фильтр…'; input.value = self.state.columnFilters[layout.modelIndex]; input.setAttribute('aria-label', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex]);
-      input.addEventListener('input', function () { self.state.columnFilters[layout.modelIndex] = input.value; delete self.state.exactFilters[layout.modelIndex]; self.app.clearSelection(); self.refreshData(); }); cell.appendChild(input); self.filterRow.appendChild(cell);
+      var cell = element('div', 'grid-cell filter-cell'); self.styleCell(cell, layout, true);
+      var control = element('div', 'filter-control');
+      var input = element('input', 'column-filter'); input.type = 'search'; input.placeholder = 'Фильтр…'; input.value = self.state.columnFilters[layout.modelIndex]; input.setAttribute('aria-label', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex]);
+      input.addEventListener('input', function () { self.state.columnFilters[layout.modelIndex] = input.value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
+      var valuesButton = element('button', 'value-filter-button', '▾'); valuesButton.type = 'button'; valuesButton.title = 'Выбрать значения колонки'; valuesButton.setAttribute('aria-label', valuesButton.title);
+      valuesButton.addEventListener('click', function (event) { event.stopPropagation(); self.app.openValueFilter(self, layout.modelIndex, valuesButton); });
+      self.filterButtons[layout.modelIndex] = valuesButton;
+      control.appendChild(input); control.appendChild(valuesButton); cell.appendChild(control); self.filterRow.appendChild(cell);
     })(this.layout.columns[filterIndex]);
   }
-  this.content.appendChild(this.filterRow); this.pinnedHost = element('div', 'pinned-rows'); this.content.appendChild(this.pinnedHost); this.body = element('div', 'virtual-body'); this.content.appendChild(this.body); this.footer = element('div', 'grid-row totals-row'); this.footer.setAttribute('role', 'row'); this.content.appendChild(this.footer);
+  this.content.appendChild(this.filterRow); this.pinnedHost = element('div', 'pinned-rows'); this.content.appendChild(this.pinnedHost);
+  this.beforeMarker = element('button', 'range-marker range-marker-before'); this.beforeMarker.type = 'button'; this.beforeMarker.addEventListener('click', function () { self.restoreHiddenRows(true); }); this.content.appendChild(this.beforeMarker);
+  this.body = element('div', 'virtual-body'); this.content.appendChild(this.body);
+  this.afterMarker = element('button', 'range-marker range-marker-after'); this.afterMarker.type = 'button'; this.afterMarker.addEventListener('click', function () { self.restoreHiddenRows(false); }); this.content.appendChild(this.afterMarker);
+  this.footer = element('div', 'grid-row totals-row'); this.footer.setAttribute('role', 'row'); this.content.appendChild(this.footer);
   this.viewport.addEventListener('scroll', function () { if (self.scrollTimer) return; self.scrollTimer = setTimeout(function () { self.scrollTimer = null; self.renderVirtualRows(); }, 0); });
-  this.refreshData(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft; this.renderVirtualRows();
+  this.refreshData(); this.updateFilterButtons(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft; this.renderVirtualRows();
 };
 
 TableView.prototype.toggleSort = function (column) {
@@ -434,7 +636,16 @@ TableView.prototype.toggleSort = function (column) {
   else if (this.state.sort.direction === 'asc') this.state.sort.direction = 'desc';
   else if (this.state.sort.direction === 'desc') this.state.sort = { column: -1, direction: null };
   else this.state.sort = { column: column, direction: 'asc' };
-  this.app.clearSelection(); this.renderGrid();
+  this.state.rowWindow = null; this.app.clearSelection(); this.renderGrid();
+};
+
+TableView.prototype.updateFilterButtons = function () {
+  for (var key in this.filterButtons) {
+    if (!Object.prototype.hasOwnProperty.call(this.filterButtons, key)) continue;
+    var active = !!this.state.valueFilters[Number(key)];
+    this.filterButtons[key].className = 'value-filter-button' + (active ? ' value-filter-button-active' : '');
+    this.filterButtons[key].setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
 };
 
 TableView.prototype.beginResize = function (event, columnIndex) {
@@ -444,8 +655,19 @@ TableView.prototype.beginResize = function (event, columnIndex) {
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 };
 
+TableView.prototype.beginNumberResize = function (event) {
+  var self = this; event.preventDefault(); event.stopPropagation(); var startX = event.clientX; var startWidth = this.state.rowNumberWidth; var scale = this.state.scale / 100;
+  function move(moveEvent) { self.state.rowNumberWidth = Math.max(42, startWidth + (moveEvent.clientX - startX) / scale); self.applyWidths(); }
+  function up() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+};
+
 TableView.prototype.applyWidths = function () {
   this.layout = this.getColumnLayout(); this.content.style.width = this.layout.totalWidth + 'px';
+  var numberCells = this.content.querySelectorAll('.number-cell');
+  for (var numberIndex = 0; numberIndex < numberCells.length; numberIndex += 1) { numberCells[numberIndex].style.width = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.minWidth = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.maxWidth = this.layout.numberWidth + 'px'; }
+  var rows = this.content.querySelectorAll('.data-row');
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) rows[rowIndex].style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
   for (var index = 0; index < this.layout.columns.length; index += 1) {
     var layout = this.layout.columns[index]; var cells = this.content.querySelectorAll('[data-column="' + layout.modelIndex + '"]');
     for (var cellIndex = 0; cellIndex < cells.length; cellIndex += 1) { cells[cellIndex].style.width = layout.width + 'px'; cells[cellIndex].style.minWidth = layout.width + 'px'; cells[cellIndex].style.maxWidth = layout.width + 'px'; if (layout.pinned) cells[cellIndex].style.left = layout.left + 'px'; }
@@ -453,7 +675,10 @@ TableView.prototype.applyWidths = function () {
 };
 
 TableView.prototype.refreshData = function () {
-  this.visibleRows = model.buildVisibleRows(this.table, this.state, this.app.globalFilter); var activeGlobal = String(this.app.globalFilter || '').trim() !== '';
+  this.allVisibleRows = model.buildVisibleRows(this.table, this.state, this.app.globalFilter);
+  var windowed = model.applyRowWindow(this.allVisibleRows, this.state.rowWindow);
+  this.visibleRows = windowed.rows; this.hiddenBefore = windowed.hiddenBefore; this.hiddenAfter = windowed.hiddenAfter;
+  var activeGlobal = String(this.app.globalFilter || '').trim() !== '';
   this.card.style.display = activeGlobal && !this.visibleRows.length ? 'none' : ''; this.count.textContent = '(' + this.visibleRows.length + ' / ' + this.table.nodeCount + ')';
   var pinnedMap = {}; var pinned = [];
   for (var pinIndex = 0; pinIndex < this.state.pinnedRows.length; pinIndex += 1) {
@@ -462,15 +687,33 @@ TableView.prototype.refreshData = function () {
   this.bodyEntries = [];
   for (var rowIndex = 0; rowIndex < this.visibleRows.length; rowIndex += 1) if (!pinnedMap[this.visibleRows[rowIndex].id]) this.bodyEntries.push({ entry: this.visibleRows[rowIndex], visibleIndex: rowIndex });
   this.pinnedEntries = pinned; this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
-  var naturalHeight = (2 + pinned.length + Math.min(this.bodyEntries.length, 14) + 1) * this.rowHeight + 2; var maxHeight = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58))); this.viewport.style.height = Math.max(3 * this.rowHeight + 2, Math.min(naturalHeight, maxHeight)) + 'px';
-  this.renderPinnedRows(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions();
+  var markerCount = (this.hiddenBefore ? 1 : 0) + (this.hiddenAfter ? 1 : 0);
+  var naturalHeight = (2 + pinned.length + markerCount + Math.min(this.bodyEntries.length, 14) + 1) * this.rowHeight + 2; var maxHeight = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58))); this.viewport.style.height = Math.max(3 * this.rowHeight + 2, Math.min(naturalHeight, maxHeight)) + 'px';
+  this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
 };
-TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.footer.style.height = this.rowHeight + 'px'; };
+TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.rowHeight + 'px'; };
 TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
+TableView.prototype.renderRangeMarkers = function () { this.beforeMarker.style.display = this.hiddenBefore ? 'block' : 'none'; this.beforeMarker.textContent = this.hiddenBefore ? 'Показать ' + this.hiddenBefore + ' скрытых строк' : ''; this.afterMarker.style.display = this.hiddenAfter ? 'block' : 'none'; this.afterMarker.textContent = this.hiddenAfter ? 'Показать ' + this.hiddenAfter + ' скрытых строк' : ''; };
+
+TableView.prototype.hideRowsAt = function (entry, before) {
+  var index = -1;
+  for (var rowIndex = 0; rowIndex < this.allVisibleRows.length; rowIndex += 1) if (this.allVisibleRows[rowIndex].id === entry.id) { index = rowIndex; break; }
+  if (index < 0) return;
+  var current = this.state.rowWindow || { start: 0, end: null };
+  this.state.rowWindow = { start: before ? index : current.start, end: before ? current.end : index };
+  this.app.clearSelection(); this.refreshData(); this.viewport.scrollTop = 0;
+};
+
+TableView.prototype.restoreHiddenRows = function (before) {
+  if (!this.state.rowWindow) return;
+  if (before) this.state.rowWindow.start = 0; else this.state.rowWindow.end = null;
+  if (!this.state.rowWindow.start && this.state.rowWindow.end === null) this.state.rowWindow = null;
+  this.app.clearSelection(); this.refreshData();
+};
 
 TableView.prototype.renderVirtualRows = function () {
   if (!this.body || this.state.collapsed) return;
-  var fixed = (2 + this.pinnedEntries.length) * this.rowHeight; var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8; var start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan); var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2; var end = Math.min(this.bodyEntries.length, start + count); clear(this.body);
+  var fixed = (2 + this.pinnedEntries.length + (this.hiddenBefore ? 1 : 0)) * this.rowHeight; var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8; var start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan); var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2; var end = Math.min(this.bodyEntries.length, start + count); clear(this.body);
   if (!this.bodyEntries.length) { var emptyRow = element('div', 'grid-empty-row', 'Нет строк, соответствующих фильтру.'); emptyRow.style.height = this.rowHeight + 'px'; this.body.appendChild(emptyRow); return; }
   for (var index = start; index < end; index += 1) { var data = this.bodyEntries[index]; var row = this.renderRow(data.entry, data.visibleIndex, false); row.style.position = 'absolute'; row.style.top = index * this.rowHeight + 'px'; this.body.appendChild(row); }
 };
@@ -494,8 +737,7 @@ TableView.prototype.isSelected = function (rowIndex, columnIndex) { var selectio
 
 TableView.prototype.renderFooter = function () {
   clear(this.footer); var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);
-  var totals = model.calculateTotals(this.table, this.visibleRows);
-  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var value = totals[layout.modelIndex]; var text = value === null ? '' : model.formatNumber(value, this.table.columnTypes[layout.modelIndex]); var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
+  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var text = ''; if (type === 'number' || type === 'percent') { var aggregate = this.state.columnAggregates[layout.modelIndex]; var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
 };
 TableView.prototype.updateCollapsed = function () { this.gridHost.style.display = this.state.collapsed ? 'none' : ''; this.collapseButton.textContent = this.state.collapsed ? '+' : '−'; this.collapseButton.title = this.state.collapsed ? 'Развернуть таблицу' : 'Свернуть таблицу'; if (!this.state.collapsed) this.refreshData(); };
 
