@@ -461,8 +461,9 @@ TableView.prototype.refreshData = function () {
   }
   this.bodyEntries = [];
   for (var rowIndex = 0; rowIndex < this.visibleRows.length; rowIndex += 1) if (!pinnedMap[this.visibleRows[rowIndex].id]) this.bodyEntries.push({ entry: this.visibleRows[rowIndex], visibleIndex: rowIndex });
-  this.pinnedEntries = pinned; this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px'; this.renderPinnedRows(); this.renderFooter(); this.renderVirtualRows();
-  var naturalHeight = (2 + pinned.length + Math.min(this.bodyEntries.length, 14) + 1) * this.rowHeight + 2; var maxHeight = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58))); this.viewport.style.height = Math.max(3 * this.rowHeight + 2, Math.min(naturalHeight, maxHeight)) + 'px'; this.updateStickyPositions();
+  this.pinnedEntries = pinned; this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
+  var naturalHeight = (2 + pinned.length + Math.min(this.bodyEntries.length, 14) + 1) * this.rowHeight + 2; var maxHeight = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58))); this.viewport.style.height = Math.max(3 * this.rowHeight + 2, Math.min(naturalHeight, maxHeight)) + 'px';
+  this.renderPinnedRows(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions();
 };
 TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.footer.style.height = this.rowHeight + 'px'; };
 TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
