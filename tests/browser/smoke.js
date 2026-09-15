@@ -109,6 +109,7 @@ async function main() {
     assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Развернуть все', 'Свернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
     assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
     assert.strictEqual(await page.$eval('.export-button', function (node) { return getComputedStyle(node).display; }), 'none');
+    await page.hover('.global-toolbar');
     const scrollbarStyles = await page.evaluate(function () {
       var viewport = document.querySelector('.table-card[data-table-index="0"] .grid-viewport');
       var rootScrollbar = getComputedStyle(document.documentElement, '::-webkit-scrollbar');
@@ -123,7 +124,12 @@ async function main() {
       };
     });
     assert.deepStrictEqual(scrollbarStyles.root, { width: '6px', height: '6px', standard: 'thin', track: 'rgb(238, 243, 248)', thumb: 'rgb(130, 152, 177)' });
-    assert.deepStrictEqual(scrollbarStyles.table, { width: '6px', height: '6px', standard: 'thin', track: 'rgb(238, 243, 248)', thumb: 'rgb(130, 152, 177)' });
+    assert.deepStrictEqual(scrollbarStyles.table, { width: '6px', height: '6px', standard: 'thin', track: 'rgba(0, 0, 0, 0)', thumb: 'rgba(0, 0, 0, 0)' });
+    await page.hover('.table-card[data-table-index="0"] .grid-viewport');
+    assert.deepStrictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
+      return { track: getComputedStyle(node, '::-webkit-scrollbar-track').backgroundColor, thumb: getComputedStyle(node, '::-webkit-scrollbar-thumb').backgroundColor };
+    }), { track: 'rgb(238, 243, 248)', thumb: 'rgb(130, 152, 177)' });
+    await page.hover('.global-toolbar');
     const initialLayout = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
       var content = node.querySelector('.grid-content');
       var cells = node.querySelectorAll('.header-row .header-cell:not(.number-cell)');
@@ -139,6 +145,33 @@ async function main() {
       return result;
     });
     assert.ok(verticalScroll.overflow && verticalScroll.position > 0, 'Вертикальная прокрутка таблицы должна работать');
+    await page.evaluate(function () {
+      var spacer = document.createElement('div');
+      spacer.id = 'scroll-test-spacer';
+      spacer.style.height = '800px';
+      document.body.appendChild(spacer);
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { return (' ' + node.className + ' ').indexOf(' scrollbar-active ') !== -1; }), true);
+    assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), true);
+    await new Promise(function (resolve) { setTimeout(resolve, 600); });
+    await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollTop = 26; });
+    await new Promise(function (resolve) { setTimeout(resolve, 500); });
+    assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'Полоса страницы должна скрыться через секунду');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { return (' ' + node.className + ' ').indexOf(' scrollbar-active ') !== -1; }), true, 'Повторная прокрутка должна продлить видимость полосы таблицы');
+    await new Promise(function (resolve) { setTimeout(resolve, 550); });
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { return (' ' + node.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'Полоса таблицы должна скрыться через секунду после последней прокрутки');
+    await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { return (' ' + node.className + ' ').indexOf(' scrollbar-active ') !== -1; }), true);
+    await page.$eval('.table-card[data-table-index="0"] input[type="range"]', function (input) { input.value = '110'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { return (' ' + node.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'Перерисовка должна очистить активность старого viewport');
+    await page.$eval('.table-card[data-table-index="0"] input[type="range"]', function (input) { input.value = '100'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.evaluate(function () {
+      window.scrollTo(0, 0);
+      var spacer = document.getElementById('scroll-test-spacer');
+      if (spacer) spacer.parentNode.removeChild(spacer);
+    });
     const horizontalScroll = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
       var content = node.querySelector('.grid-content');
       var oldWidth = content.style.width;
@@ -404,6 +437,13 @@ async function main() {
     errors.splice(errorsBeforeValidation, 1);
     assert.strictEqual(await page.evaluate(function () { return window.setData({ tables: [] }); }), true);
     assert.ok(await page.$('.empty-state'));
+
+    assert.strictEqual(await page.evaluate(function () {
+      window.dispatchEvent(new Event('scroll'));
+      return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1;
+    }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.destroy(); }), true);
+    assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
 
     assert.deepStrictEqual(errors, []);
     console.log('[browser] Smoke-тест пройден');

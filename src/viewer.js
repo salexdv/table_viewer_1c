@@ -1,6 +1,7 @@
 var model = require('./model');
 
 var currentApp = null;
+var SCROLLBAR_HIDE_DELAY = 1000;
 var AGGREGATES = [
   { value: 'sum', label: 'Сумма' },
   { value: 'average', label: 'Среднее' },
@@ -178,14 +179,17 @@ function ViewerApp(root) {
   this.filterPanel = null;
   this.globalSearchTimer = null;
   this.layoutFrame = null;
+  this.pageScrollbarTimer = null;
   this.selectionAggregate = 'sum';
   this.selectionView = null;
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
   this.onWindowResize = this.scheduleTableLayouts.bind(this);
+  this.onWindowScroll = this.activatePageScrollbar.bind(this);
   document.addEventListener('mouseup', this.onDocumentMouseUp);
   document.addEventListener('click', this.onDocumentMouseDown);
   window.addEventListener('resize', this.onWindowResize);
+  window.addEventListener('scroll', this.onWindowScroll);
 }
 
 ViewerApp.prototype.load = function (input) {
@@ -604,6 +608,20 @@ ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
   }
   this.clearSelection(); this.tableViews[tableIndex].refreshData(); return true;
 };
+ViewerApp.prototype.activatePageScrollbar = function () {
+  var self = this; var root = document.documentElement;
+  setClass(root, 'scrollbar-active', true);
+  if (this.pageScrollbarTimer !== null) clearTimeout(this.pageScrollbarTimer);
+  this.pageScrollbarTimer = setTimeout(function () {
+    self.pageScrollbarTimer = null;
+    setClass(root, 'scrollbar-active', false);
+  }, SCROLLBAR_HIDE_DELAY);
+};
+ViewerApp.prototype.cancelPageScrollbar = function () {
+  if (this.pageScrollbarTimer !== null) clearTimeout(this.pageScrollbarTimer);
+  this.pageScrollbarTimer = null;
+  setClass(document.documentElement, 'scrollbar-active', false);
+};
 ViewerApp.prototype.destroy = function () {
   if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
   if (this.layoutFrame) cancelFrame(this.layoutFrame);
@@ -611,6 +629,8 @@ ViewerApp.prototype.destroy = function () {
   document.removeEventListener('mouseup', this.onDocumentMouseUp);
   document.removeEventListener('click', this.onDocumentMouseDown);
   window.removeEventListener('resize', this.onWindowResize);
+  window.removeEventListener('scroll', this.onWindowScroll);
+  this.cancelPageScrollbar();
   this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.bridge.destroy(); clear(this.root);
 };
 
@@ -618,7 +638,7 @@ function TableView(app, table, state, tableIndex) {
   this.app = app; this.table = table; this.state = state; this.tableIndex = tableIndex;
   this.allVisibleRows = []; this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
   this.hiddenBefore = 0; this.hiddenAfter = 0; this.filterButtons = {};
-  this.rowHeight = 26; this.scrollFrame = null; this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1; this.card = this.createCard();
+  this.rowHeight = 26; this.scrollFrame = null; this.scrollbarTimer = null; this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1; this.card = this.createCard();
 }
 
 TableView.prototype.createCard = function () {
@@ -789,15 +809,27 @@ TableView.prototype.renderGrid = function () {
   this.afterMarker = element('button', 'range-marker range-marker-after'); this.afterMarker.type = 'button'; this.afterMarker.addEventListener('click', function () { self.restoreHiddenRows(false); }); this.content.appendChild(this.afterMarker);
   this.footer = element('div', 'grid-row totals-row'); this.footer.setAttribute('role', 'row'); this.content.appendChild(this.footer);
   this.viewport.addEventListener('scroll', function () {
+    self.activateScrollbar();
     if (self.scrollFrame !== null) return;
     self.scrollFrame = requestFrame(function () { self.scrollFrame = null; self.renderVirtualRows(); });
   });
   this.refreshData(); this.updateFilterButtons(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft; this.renderVirtualRows();
 };
 
+TableView.prototype.activateScrollbar = function () {
+  var self = this; var viewport = this.viewport;
+  setClass(viewport, 'scrollbar-active', true);
+  if (this.scrollbarTimer !== null) clearTimeout(this.scrollbarTimer);
+  this.scrollbarTimer = setTimeout(function () {
+    setClass(viewport, 'scrollbar-active', false);
+    if (self.viewport === viewport) self.scrollbarTimer = null;
+  }, SCROLLBAR_HIDE_DELAY);
+};
+
 TableView.prototype.cancelScheduledRender = function () {
-  if (this.scrollFrame === null) return;
-  cancelFrame(this.scrollFrame); this.scrollFrame = null;
+  if (this.scrollFrame !== null) { cancelFrame(this.scrollFrame); this.scrollFrame = null; }
+  if (this.scrollbarTimer !== null) { clearTimeout(this.scrollbarTimer); this.scrollbarTimer = null; }
+  if (this.viewport) setClass(this.viewport, 'scrollbar-active', false);
 };
 
 TableView.prototype.toggleSort = function (column) {

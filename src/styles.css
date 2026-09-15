@@ -9,10 +9,13 @@
 * { box-sizing: border-box; }
 html, body { width: 100%; min-height: 100%; margin: 0; }
 body { overflow-x: hidden; background: #eef3f8; }
-html, .grid-viewport { scrollbar-width: thin; scrollbar-color: #8298b1 #eef3f8; }
+html, .grid-viewport { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+html:hover, html.scrollbar-active, .grid-viewport:hover, .grid-viewport.scrollbar-active { scrollbar-color: #8298b1 #eef3f8; }
 html::-webkit-scrollbar, .grid-viewport::-webkit-scrollbar { width: 6px; height: 6px; }
-html::-webkit-scrollbar-track, .grid-viewport::-webkit-scrollbar-track { background: #eef3f8; }
-html::-webkit-scrollbar-thumb, .grid-viewport::-webkit-scrollbar-thumb { border-radius: 3px; background: #8298b1; }
+html::-webkit-scrollbar-track, .grid-viewport::-webkit-scrollbar-track { background: transparent; }
+html::-webkit-scrollbar-thumb, .grid-viewport::-webkit-scrollbar-thumb { border-radius: 3px; background: transparent; }
+html:hover::-webkit-scrollbar-track, html.scrollbar-active::-webkit-scrollbar-track, .grid-viewport:hover::-webkit-scrollbar-track, .grid-viewport.scrollbar-active::-webkit-scrollbar-track { background: #eef3f8; }
+html:hover::-webkit-scrollbar-thumb, html.scrollbar-active::-webkit-scrollbar-thumb, .grid-viewport:hover::-webkit-scrollbar-thumb, .grid-viewport.scrollbar-active::-webkit-scrollbar-thumb { background: #8298b1; }
 button, input, select { font: inherit; }
 button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; outline-offset: -1px; }
 .app { min-height: 100vh; padding: 8px; }

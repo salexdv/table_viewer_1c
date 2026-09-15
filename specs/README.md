@@ -27,3 +27,4 @@
 - [`optional-column-aggregates`](done/optional-column-aggregates/spec.md) — отключаемые по умолчанию итоги колонок
   и условный подвал таблицы.
 - [`compact-scrollbars`](done/compact-scrollbars/spec.md) — компактные полосы прокрутки страницы и таблиц.
+- [`auto-hide-scrollbars`](done/auto-hide-scrollbars/spec.md) — показ полос прокрутки при наведении или прокрутке.
