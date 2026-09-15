@@ -32,3 +32,5 @@
   меню с передачей значения ячейки в событиях 1С.
 - [`toolbar-selection-aggregates`](done/toolbar-selection-aggregates/spec.md) — группы общей панели, увеличенные
   команды дерева, правое выравнивание чисел и popup агрегатов выделения.
+- [`search-highlighting-and-clear`](done/search-highlighting-and-clear/spec.md) — поиск по упорядоченным фрагментам,
+  подсветка совпадений и совместимые с WebKit 1С кнопки очистки.
