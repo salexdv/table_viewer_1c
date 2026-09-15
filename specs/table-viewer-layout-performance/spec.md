@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Компактные команды, адаптивная компоновка и быстрый скролл
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-15
 updated: 2026-09-15

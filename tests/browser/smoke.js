@@ -73,6 +73,21 @@ async function main() {
     await page.waitForSelector('.table-card');
 
     assert.strictEqual(await page.$$eval('.table-card', function (nodes) { return nodes.length; }), 2);
+    const commandButtons = await page.$$eval('.command-icon-button, .tree-command-button', function (nodes) {
+      return nodes.map(function (node) { return { text: node.textContent, title: node.title, label: node.getAttribute('aria-label'), icons: node.querySelectorAll('svg[aria-hidden="true"]').length }; });
+    });
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Развернуть все', 'Свернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
+    assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
+    assert.strictEqual(await page.$eval('.export-button', function (node) { return getComputedStyle(node).display; }), 'none');
+    const initialLayout = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
+      var content = node.querySelector('.grid-content');
+      var cells = node.querySelectorAll('.header-row .header-cell:not(.number-cell)');
+      return { viewport: node.clientWidth, content: content.getBoundingClientRect().width, first: cells[0].getBoundingClientRect().width, second: cells[1].getBoundingClientRect().width, height: node.getBoundingClientRect().height };
+    });
+    assert.ok(Math.abs(initialLayout.content - initialLayout.viewport) <= 1, 'Колонки должны заполнять доступную ширину');
+    assert.ok(initialLayout.first > initialLayout.second, 'Свободная ширина должна распределяться пропорционально');
+    assert.ok(initialLayout.height <= Math.round(800 * 0.58) + 1, 'Несколько таблиц сохраняют ограничение высоты');
     assert.ok((await page.$eval('.table-count', function (node) { return node.textContent; })).indexOf('10000 / 10000') !== -1);
     const numberStyle = await page.$eval('.table-card[data-table-index="0"] .data-row .number-cell', function (node) { var style = getComputedStyle(node); return { color: style.color, weight: style.fontWeight }; });
     assert.notStrictEqual(numberStyle.color, 'rgb(239, 69, 69)');
@@ -93,6 +108,16 @@ async function main() {
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"]', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="1"]', function (node) { return getComputedStyle(node).display; }), 'none');
+    await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+
+    await page.$eval('.global-search', function (input) { input.value = 'Строка'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 190); });
+    const singleHeight = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
+      var box = node.getBoundingClientRect(); return { height: box.height, bottom: box.bottom, windowHeight: window.innerHeight };
+    });
+    assert.ok(singleHeight.height > 620, 'Одна большая таблица должна использовать доступную высоту');
+    assert.ok(Math.abs(singleHeight.windowHeight - singleHeight.bottom - 8) <= 2, 'Одиночная таблица должна доходить до нижнего отступа');
     await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
 
@@ -212,7 +237,7 @@ async function main() {
     });
     await page.click('.cell-link');
     await new Promise(function (resolve) { setTimeout(resolve, 30); });
-    await page.click('.button-primary');
+    await page.$eval('.export-button', function (node) { node.click(); });
     await new Promise(function (resolve) { setTimeout(resolve, 30); });
     const events = await page.evaluate(function () { return window.__events; });
     assert.deepStrictEqual(events, [

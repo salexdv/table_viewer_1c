@@ -19,6 +19,10 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .button-primary { border-color: #2473dc; color: #fff; background: #2f7fea; }
 .button-primary:hover { color: #fff; background: #236fd3; }
 .button-small { min-height: 24px; padding: 2px 7px; font-size: 11px; }
+.command-icon-button { width: 30px; height: 30px; }
+.tree-command-button { width: 26px; height: 24px; }
+.button-icon { display: block; width: 16px; height: 16px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.export-button-temporarily-hidden { display: none; }
 .selection-control { display: -webkit-box; display: flex; align-items: stretch; margin-left: auto; white-space: nowrap; }
 .selection-aggregate { min-height: 30px; padding: 3px 5px; border: 1px solid #c8d5e4; border-right: 0; border-radius: 4px 0 0 4px; color: #30445f; background: #fff; }
 .selection-summary { min-width: 150px; padding: 5px 9px; border: 1px solid #c8d5e4; border-radius: 0 4px 4px 0; text-align: right; font-weight: 700; color: #1d4f91; background: #fff; white-space: nowrap; }

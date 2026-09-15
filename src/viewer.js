@@ -29,6 +29,38 @@ function addButton(parent, text, title, onClick, className) {
   return button;
 }
 
+function requestFrame(callback) {
+  var request = window.requestAnimationFrame || window.webkitRequestAnimationFrame;
+  return request ? request.call(window, callback) : window.setTimeout(callback, 16);
+}
+
+function cancelFrame(frame) {
+  var cancel = window.cancelAnimationFrame || window.webkitCancelAnimationFrame;
+  if (cancel) cancel.call(window, frame);
+  else window.clearTimeout(frame);
+}
+
+function addIconButton(parent, iconName, label, onClick, className) {
+  var button = addButton(parent, '', label, onClick, className || 'icon-button');
+  button.setAttribute('aria-label', label);
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'button-icon');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  if (iconName === 'expand-all') path.setAttribute('d', 'M2.5 2.5 8 7l5.5-4.5M2.5 8.5 8 13l5.5-4.5');
+  else if (iconName === 'collapse-all') path.setAttribute('d', 'M2.5 7.5 8 3l5.5 4.5M2.5 13.5 8 9l5.5 4.5');
+  else {
+    path.setAttribute('d', iconName === 'expand-tree'
+      ? 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M10.5 4.5v3M7 11h7'
+      : 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M7 11h7');
+  }
+  svg.appendChild(path);
+  button.appendChild(svg);
+  return button;
+}
+
 function arrayIndex(array, value) {
   for (var index = 0; index < array.length; index += 1) if (array[index] === value) return index;
   return -1;
@@ -123,12 +155,15 @@ function ViewerApp(root) {
   this.columnPanel = null;
   this.filterPanel = null;
   this.globalSearchTimer = null;
+  this.layoutFrame = null;
   this.selectionAggregate = 'sum';
   this.selectionView = null;
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
+  this.onWindowResize = this.scheduleTableLayouts.bind(this);
   document.addEventListener('mouseup', this.onDocumentMouseUp);
   document.addEventListener('click', this.onDocumentMouseDown);
+  window.addEventListener('resize', this.onWindowResize);
 }
 
 ViewerApp.prototype.load = function (input) {
@@ -197,9 +232,9 @@ ViewerApp.prototype.render = function () {
     event.stopPropagation();
     self.toggleColumnPanel(columnsButton);
   });
-  addButton(toolbar, 'Развернуть все', 'Показать все таблицы и узлы дерева', function () { self.expandAll(); });
-  addButton(toolbar, 'Свернуть все', 'Свернуть все таблицы и узлы дерева', function () { self.collapseAll(); });
-  addButton(toolbar, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary');
+  addIconButton(toolbar, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
+  addIconButton(toolbar, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
+  addButton(toolbar, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary export-button export-button-temporarily-hidden');
   var selectionControl = element('div', 'selection-control');
   this.selectionAggregateSelect = element('select', 'selection-aggregate');
   this.selectionAggregateSelect.setAttribute('aria-label', 'Функция для выделенных ячеек');
@@ -229,7 +264,9 @@ ViewerApp.prototype.render = function () {
     var view = new TableView(this, this.data.tables[index], this.states[index], index);
     this.tableViews.push(view);
     this.tablesHost.appendChild(view.card);
+    view.renderGrid();
   }
+  this.updateTableLayouts();
 };
 
 ViewerApp.prototype.refreshTables = function () {
@@ -239,6 +276,30 @@ ViewerApp.prototype.refreshTables = function () {
   var old = this.tablesHost.querySelector('.global-empty-state');
   if (old) old.parentNode.removeChild(old);
   if (!visible && String(this.globalFilter || '').trim()) this.tablesHost.appendChild(element('div', 'empty-state global-empty-state', 'Совпадений не найдено.'));
+  this.updateTableLayouts();
+};
+
+ViewerApp.prototype.scheduleTableLayouts = function () {
+  var self = this;
+  if (this.layoutFrame) return;
+  this.layoutFrame = requestFrame(function () {
+    self.layoutFrame = null;
+    self.updateTableLayouts();
+  });
+};
+
+ViewerApp.prototype.updateTableLayouts = function () {
+  var visible = 0;
+  for (var index = 0; index < this.tableViews.length; index += 1) {
+    if (this.tableViews[index].card.style.display !== 'none') visible += 1;
+  }
+  for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) {
+    var view = this.tableViews[viewIndex];
+    if (view.card.style.display === 'none' || view.state.collapsed || !view.viewport) continue;
+    view.applyHeight(visible === 1);
+    view.applyWidths();
+    view.renderVirtualRows();
+  }
 };
 
 ViewerApp.prototype.resetRowWindows = function () {
@@ -517,8 +578,10 @@ ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
 };
 ViewerApp.prototype.destroy = function () {
   if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
+  if (this.layoutFrame) cancelFrame(this.layoutFrame);
   document.removeEventListener('mouseup', this.onDocumentMouseUp);
   document.removeEventListener('click', this.onDocumentMouseDown);
+  window.removeEventListener('resize', this.onWindowResize);
   this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.bridge.destroy(); clear(this.root);
 };
 
@@ -526,7 +589,7 @@ function TableView(app, table, state, tableIndex) {
   this.app = app; this.table = table; this.state = state; this.tableIndex = tableIndex;
   this.allVisibleRows = []; this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
   this.hiddenBefore = 0; this.hiddenAfter = 0; this.filterButtons = {};
-  this.rowHeight = 26; this.scrollTimer = null; this.card = this.createCard(); this.renderGrid();
+  this.rowHeight = 26; this.scrollTimer = null; this.card = this.createCard();
 }
 
 TableView.prototype.createCard = function () {
@@ -537,8 +600,8 @@ TableView.prototype.createCard = function () {
   titlebar.appendChild(element('strong', 'table-title', this.table.name || 'Таблица ' + (this.tableIndex + 1)));
   this.count = element('span', 'table-count'); titlebar.appendChild(this.count); titlebar.appendChild(element('span', 'title-spacer'));
   if (this.table.isTree) {
-    addButton(titlebar, 'Раскрыть дерево', '', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'button button-small');
-    addButton(titlebar, 'Свернуть дерево', '', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'button button-small');
+    addIconButton(titlebar, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'icon-button tree-command-button expand-tree-button');
+    addIconButton(titlebar, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'icon-button tree-command-button collapse-tree-button');
   }
   var scaleLabel = element('label', 'scale-control'); scaleLabel.appendChild(document.createTextNode('Масштаб '));
   var slider = element('input'); slider.type = 'range'; slider.min = '50'; slider.max = '200'; slider.step = '10'; slider.value = String(this.state.scale); slider.setAttribute('aria-label', 'Масштаб таблицы');
@@ -548,7 +611,7 @@ TableView.prototype.createCard = function () {
   card.appendChild(titlebar); this.gridHost = element('div', 'grid-host'); card.appendChild(this.gridHost); return card;
 };
 
-TableView.prototype.getColumnLayout = function () {
+TableView.prototype.getColumnLayout = function (availableWidth) {
   var scale = this.state.scale / 100; var pinned = []; var regular = []; var seen = {};
   for (var pinIndex = 0; pinIndex < this.state.pinnedColumns.length; pinIndex += 1) {
     var pin = this.state.pinnedColumns[pinIndex];
@@ -556,13 +619,21 @@ TableView.prototype.getColumnLayout = function () {
   }
   for (var index = 0; index < this.table.columns.length; index += 1) if (!this.state.hiddenColumns[index] && !seen[index]) regular.push(index);
   this.visibleColumns = pinned.concat(regular);
-  var numberWidth = Math.max(42, Math.round(this.state.rowNumberWidth * scale)); var left = numberWidth; var columns = [];
+  var numberWidth = Math.max(42, Math.round(this.state.rowNumberWidth * scale)); var rawWidths = []; var rawTotal = 0;
   for (var visibleIndex = 0; visibleIndex < this.visibleColumns.length; visibleIndex += 1) {
-    var column = this.visibleColumns[visibleIndex]; var isPinned = arrayIndex(pinned, column) !== -1; var width = Math.max(60, Math.round(this.state.widths[column] * scale));
-    columns.push({ modelIndex: column, visibleIndex: visibleIndex, width: width, pinned: isPinned, left: isPinned ? left : 0 });
+    var rawWidth = Math.max(60, Math.round(this.state.widths[this.visibleColumns[visibleIndex]] * scale));
+    rawWidths.push(rawWidth); rawTotal += rawWidth;
+  }
+  var dataWidth = Math.max(0, Number(availableWidth) - numberWidth); var stretch = rawTotal > 0 && dataWidth > rawTotal ? dataWidth / rawTotal : 1;
+  var left = numberWidth; var columns = []; var usedWidth = 0;
+  for (var layoutIndex = 0; layoutIndex < this.visibleColumns.length; layoutIndex += 1) {
+    var column = this.visibleColumns[layoutIndex]; var isPinned = arrayIndex(pinned, column) !== -1;
+    var width = stretch > 1 && layoutIndex === this.visibleColumns.length - 1 ? dataWidth - usedWidth : Math.round(rawWidths[layoutIndex] * stretch);
+    usedWidth += width;
+    columns.push({ modelIndex: column, visibleIndex: layoutIndex, width: width, pinned: isPinned, left: isPinned ? left : 0 });
     if (isPinned) left += width;
   }
-  return { numberWidth: numberWidth, columns: columns, totalWidth: numberWidth + columns.reduce(function (sum, item) { return sum + item.width; }, 0) };
+  return { numberWidth: numberWidth, columns: columns, totalWidth: numberWidth + usedWidth };
 };
 
 TableView.prototype.styleCell = function (cell, layout, header) {
@@ -663,7 +734,8 @@ TableView.prototype.beginNumberResize = function (event) {
 };
 
 TableView.prototype.applyWidths = function () {
-  this.layout = this.getColumnLayout(); this.content.style.width = this.layout.totalWidth + 'px';
+  if (!this.viewport || !this.content) return;
+  this.layout = this.getColumnLayout(this.viewport.clientWidth || 0); this.content.style.width = this.layout.totalWidth + 'px';
   var numberCells = this.content.querySelectorAll('.number-cell');
   for (var numberIndex = 0; numberIndex < numberCells.length; numberIndex += 1) { numberCells[numberIndex].style.width = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.minWidth = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.maxWidth = this.layout.numberWidth + 'px'; }
   var rows = this.content.querySelectorAll('.data-row');
@@ -672,6 +744,24 @@ TableView.prototype.applyWidths = function () {
     var layout = this.layout.columns[index]; var cells = this.content.querySelectorAll('[data-column="' + layout.modelIndex + '"]');
     for (var cellIndex = 0; cellIndex < cells.length; cellIndex += 1) { cells[cellIndex].style.width = layout.width + 'px'; cells[cellIndex].style.minWidth = layout.width + 'px'; cells[cellIndex].style.maxWidth = layout.width + 'px'; if (layout.pinned) cells[cellIndex].style.left = layout.left + 'px'; }
   }
+};
+
+TableView.prototype.applyHeight = function (singleVisible) {
+  if (!this.viewport) return;
+  var markerCount = (this.hiddenBefore ? 1 : 0) + (this.hiddenAfter ? 1 : 0);
+  var fixedRows = 2 + this.pinnedEntries.length + markerCount + 1;
+  var minimum = 3 * this.rowHeight + 2;
+  var naturalRows = fixedRows + this.bodyEntries.length;
+  var naturalHeight = naturalRows * this.rowHeight + 2;
+  var limit;
+  if (singleVisible) {
+    var top = this.viewport.getBoundingClientRect().top;
+    limit = Math.max(minimum, Math.floor(window.innerHeight - top - 8));
+  } else {
+    limit = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58)));
+    naturalHeight = (fixedRows + Math.min(this.bodyEntries.length, 14)) * this.rowHeight + 2;
+  }
+  this.viewport.style.height = Math.max(minimum, Math.min(naturalHeight, limit)) + 'px';
 };
 
 TableView.prototype.refreshData = function () {
@@ -687,9 +777,9 @@ TableView.prototype.refreshData = function () {
   this.bodyEntries = [];
   for (var rowIndex = 0; rowIndex < this.visibleRows.length; rowIndex += 1) if (!pinnedMap[this.visibleRows[rowIndex].id]) this.bodyEntries.push({ entry: this.visibleRows[rowIndex], visibleIndex: rowIndex });
   this.pinnedEntries = pinned; this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
-  var markerCount = (this.hiddenBefore ? 1 : 0) + (this.hiddenAfter ? 1 : 0);
-  var naturalHeight = (2 + pinned.length + markerCount + Math.min(this.bodyEntries.length, 14) + 1) * this.rowHeight + 2; var maxHeight = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58))); this.viewport.style.height = Math.max(3 * this.rowHeight + 2, Math.min(naturalHeight, maxHeight)) + 'px';
+  this.applyHeight(false);
   this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
+  this.app.scheduleTableLayouts();
 };
 TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.rowHeight + 'px'; };
 TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
@@ -739,7 +829,7 @@ TableView.prototype.renderFooter = function () {
   clear(this.footer); var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);
   for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var text = ''; if (type === 'number' || type === 'percent') { var aggregate = this.state.columnAggregates[layout.modelIndex]; var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
 };
-TableView.prototype.updateCollapsed = function () { this.gridHost.style.display = this.state.collapsed ? 'none' : ''; this.collapseButton.textContent = this.state.collapsed ? '+' : '−'; this.collapseButton.title = this.state.collapsed ? 'Развернуть таблицу' : 'Свернуть таблицу'; if (!this.state.collapsed) this.refreshData(); };
+TableView.prototype.updateCollapsed = function () { this.gridHost.style.display = this.state.collapsed ? 'none' : ''; this.collapseButton.textContent = this.state.collapsed ? '+' : '−'; this.collapseButton.title = this.state.collapsed ? 'Развернуть таблицу' : 'Свернуть таблицу'; if (!this.state.collapsed) this.refreshData(); this.app.scheduleTableLayouts(); };
 
 function installPublicApi() {
   window.init = function (data) { if (currentApp) currentApp.destroy(); var root = document.getElementById('app'); if (!root) return false; currentApp = new ViewerApp(root); return currentApp.load(data); };
