@@ -106,8 +106,14 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .column-option { display: block; padding: 3px 2px; cursor: pointer; }
 .column-option:hover { background: #f0f6fd; }
 .column-option input { margin: 0 6px 0 0; vertical-align: middle; }
-.context-menu { position: fixed; z-index: 120; min-width: 205px; padding: 4px; border: 1px solid #b9c7d8; border-radius: 5px; background: #fff; box-shadow: 0 7px 20px rgba(28, 47, 73, 0.25); }
+.context-menu { position: fixed; z-index: 120; min-width: 205px; overflow: visible; padding: 4px; border: 1px solid #b9c7d8; border-radius: 5px; background: #fff; box-shadow: 0 7px 20px rgba(28, 47, 73, 0.25); }
+.menu-group, .menu-submenu { position: relative; }
+.menu-separator { height: 1px; margin: 4px 3px; background: #d8e1eb; }
 .menu-item { display: block; width: 100%; min-height: 28px; border: 0; text-align: left; }
+.menu-submenu-trigger { position: relative; padding-right: 28px; }
+.menu-submenu-trigger::after { position: absolute; top: 50%; right: 9px; content: '›'; font-size: 18px; line-height: 1; transform: translateY(-50%); }
+.context-submenu { z-index: 121; display: none; }
+.menu-submenu-open > .context-submenu { display: block; }
 .menu-item-active { color: #185ca8; background: #eef5ff; }
 .selection-aggregates-popup { position: fixed; z-index: 140; min-width: 220px; padding: 7px 9px; border: 1px solid #b9c7d8; border-radius: 5px; color: #30445f; background: #fff; box-shadow: 0 7px 20px rgba(28, 47, 73, 0.25); }
 .selection-result-row { display: -webkit-box; display: flex; justify-content: space-between; gap: 24px; padding: 3px 2px; }

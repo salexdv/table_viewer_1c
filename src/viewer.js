@@ -52,6 +52,50 @@ function addButton(parent, text, title, onClick, className) {
   return button;
 }
 
+function menuGroup() {
+  var group = element('div', 'menu-group');
+  group.setAttribute('role', 'group');
+  return group;
+}
+
+function appendMenuGroup(menu, group) {
+  if (!group || !group.children.length) return false;
+  if (menu.children.length) {
+    var separator = element('div', 'menu-separator');
+    separator.setAttribute('role', 'separator');
+    menu.appendChild(separator);
+  }
+  menu.appendChild(group);
+  return true;
+}
+
+function addMenuItem(parent, text, onClick, className) {
+  var item = addButton(parent, text, '', onClick, 'menu-item' + (className ? ' ' + className : ''));
+  item.setAttribute('role', 'menuitem');
+  return item;
+}
+
+function addSubmenu(app, parent, label, build) {
+  var wrapper = element('div', 'menu-submenu');
+  var trigger = addMenuItem(wrapper, label, function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    app.toggleSubmenu(wrapper, submenu, trigger);
+  }, 'menu-submenu-trigger');
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  var submenu = element('div', 'context-menu context-submenu');
+  submenu.setAttribute('role', 'menu');
+  var group = menuGroup();
+  build(group);
+  appendMenuGroup(submenu, group);
+  wrapper.appendChild(submenu);
+  wrapper.addEventListener('mouseenter', function () { app.openSubmenu(wrapper, submenu, trigger); });
+  trigger.addEventListener('focus', function () { app.openSubmenu(wrapper, submenu, trigger); });
+  parent.appendChild(wrapper);
+  return wrapper;
+}
+
 function bindSearchInput(input, onChange) {
   var previousValue = input.value;
   function handleChange() {
@@ -309,7 +353,7 @@ ViewerApp.prototype.render = function () {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
     self.globalSearchTimer = setTimeout(function () {
       self.globalFilter = value;
-      self.resetRowWindows();
+      self.resetRowRanges();
       self.clearSelection();
       self.refreshTables();
     }, 120);
@@ -387,8 +431,11 @@ ViewerApp.prototype.updateTableLayouts = function () {
   this.positionSelectionPopup();
 };
 
-ViewerApp.prototype.resetRowWindows = function () {
-  for (var index = 0; index < this.states.length; index += 1) this.states[index].rowWindow = null;
+ViewerApp.prototype.resetRowRanges = function () {
+  for (var index = 0; index < this.states.length; index += 1) {
+    this.states[index].rowWindow = null;
+    this.states[index].hiddenRows = {};
+  }
 };
 
 ViewerApp.prototype.toggleColumnPanel = function (anchor) {
@@ -456,7 +503,40 @@ ViewerApp.prototype.onOutsidePointer = function (event) {
 };
 
 ViewerApp.prototype.onKeyDown = function (event) {
+  if ((event.key === 'Escape' || event.keyCode === 27) && this.menu) this.closeMenu();
   if ((event.key === 'Escape' || event.keyCode === 27) && this.selectionPopup) this.closeSelectionPopup();
+};
+
+ViewerApp.prototype.openSubmenu = function (wrapper, submenu, trigger) {
+  if (!this.menu || !this.menu.contains(wrapper)) return;
+  var wrappers = this.menu.querySelectorAll('.menu-submenu-open');
+  for (var index = 0; index < wrappers.length; index += 1) {
+    if (wrappers[index] === wrapper) continue;
+    setClass(wrappers[index], 'menu-submenu-open', false);
+    var oldTrigger = wrappers[index].querySelector('.menu-submenu-trigger');
+    if (oldTrigger) oldTrigger.setAttribute('aria-expanded', 'false');
+  }
+  setClass(wrapper, 'menu-submenu-open', true);
+  trigger.setAttribute('aria-expanded', 'true');
+  submenu.style.left = '0px';
+  submenu.style.top = '0px';
+  var rect = wrapper.getBoundingClientRect();
+  var width = submenu.offsetWidth;
+  var height = submenu.offsetHeight;
+  var left = rect.right + 3;
+  if (left + width > window.innerWidth - 4) left = rect.left - width - 3;
+  var top = Math.max(4, Math.min(rect.top - 4, window.innerHeight - height - 4));
+  submenu.style.left = Math.max(4, left) + 'px';
+  submenu.style.top = top + 'px';
+};
+
+ViewerApp.prototype.toggleSubmenu = function (wrapper, submenu, trigger) {
+  if ((' ' + wrapper.className + ' ').indexOf(' menu-submenu-open ') !== -1) {
+    setClass(wrapper, 'menu-submenu-open', false);
+    trigger.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  this.openSubmenu(wrapper, submenu, trigger);
 };
 
 ViewerApp.prototype.openAggregateMenu = function (view, columnIndex, anchor) {
@@ -557,12 +637,12 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
     var allSelected = values.length > 0;
     for (var index = 0; index < values.length && allSelected; index += 1) if (!draft[values[index].value]) allSelected = false;
     view.state.valueFilters[columnIndex] = allSelected ? null : copySelectionMap(draft);
-    view.state.rowWindow = null;
+    view.resetRowRanges();
     self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
   }, 'button button-primary button-small');
   addButton(actions, 'Отмена', '', function () { self.closeFilterPanel(); }, 'button button-small');
   addButton(actions, 'Очистить фильтр', '', function () {
-    view.state.valueFilters[columnIndex] = null; view.state.rowWindow = null;
+    view.state.valueFilters[columnIndex] = null; view.resetRowRanges();
     self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
   }, 'button button-small');
   list.addEventListener('scroll', renderList);
@@ -580,46 +660,76 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
   this.closeMenu();
   var menu = element('div', 'context-menu');
   menu.setAttribute('role', 'menu');
+
+  var filterGroup = menuGroup();
   if (columnIndex >= 0) {
-    var columnPinned = arrayIndex(view.state.pinnedColumns, columnIndex) !== -1;
-    addButton(menu, columnPinned ? 'Открепить колонку' : 'Зафиксировать колонку', '', function () {
-      if (columnPinned) removeValue(view.state.pinnedColumns, columnIndex);
-      else view.state.pinnedColumns.push(columnIndex);
+    addMenuItem(filterGroup, 'Отбор по значению', function () {
+      view.state.columnFilters[columnIndex] = model.cellText(entry.row.columns[columnIndex]);
+      view.state.exactFilters[columnIndex] = true;
+      view.resetRowRanges();
       self.clearSelection(); self.closeMenu(); view.renderGrid();
-    }, 'menu-item');
+    });
   }
+  appendMenuGroup(menu, filterGroup);
+
+  var pinGroup = menuGroup();
   var rowPinned = arrayIndex(view.state.pinnedRows, entry.id) !== -1;
-  addButton(menu, rowPinned ? 'Открепить строку' : 'Зафиксировать строку', '', function () {
+  addMenuItem(pinGroup, rowPinned ? 'Открепить строку' : 'Зафиксировать строку', function () {
     if (rowPinned) removeValue(view.state.pinnedRows, entry.id);
     else view.state.pinnedRows.push(entry.id);
     self.closeMenu(); view.refreshData();
-  }, 'menu-item');
-  if (!view.table.isTree) {
-    addButton(menu, 'Свернуть строки до', '', function () {
-      self.closeMenu(); view.hideRowsAt(entry, true);
-    }, 'menu-item');
-    addButton(menu, 'Свернуть строки после', '', function () {
-      self.closeMenu(); view.hideRowsAt(entry, false);
-    }, 'menu-item');
-  }
+  });
   if (columnIndex >= 0) {
-    addButton(menu, 'Отбор по значению', '', function () {
-      view.state.columnFilters[columnIndex] = model.cellText(entry.row.columns[columnIndex]);
-      view.state.exactFilters[columnIndex] = true;
-      view.state.rowWindow = null;
+    var columnPinned = arrayIndex(view.state.pinnedColumns, columnIndex) !== -1;
+    addMenuItem(pinGroup, columnPinned ? 'Открепить колонку' : 'Зафиксировать колонку', function () {
+      if (columnPinned) removeValue(view.state.pinnedColumns, columnIndex);
+      else view.state.pinnedColumns.push(columnIndex);
       self.clearSelection(); self.closeMenu(); view.renderGrid();
-    }, 'menu-item');
+    });
   }
+  appendMenuGroup(menu, pinGroup);
+
+  var collapseGroup = menuGroup();
+  addSubmenu(this, collapseGroup, 'Сворачивание', function (submenuGroup) {
+    addMenuItem(submenuGroup, 'Свернуть выделенные', function () {
+      self.closeMenu(); view.hideSelectedRows(entry);
+    });
+    addMenuItem(submenuGroup, 'Свернуть до', function () {
+      self.closeMenu(); view.hideRowsAt(entry, true);
+    });
+    addMenuItem(submenuGroup, 'Свернуть после', function () {
+      self.closeMenu(); view.hideRowsAt(entry, false);
+    });
+  });
+  appendMenuGroup(menu, collapseGroup);
+
+  if (view.table.isTree) {
+    var groupingGroup = menuGroup();
+    addSubmenu(this, groupingGroup, 'Уровень группировки', function (submenuGroup) {
+      var maximum = model.treeDepth(view.table);
+      for (var level = 1; level <= maximum; level += 1) {
+        (function (targetLevel) {
+          addMenuItem(submenuGroup, 'Уровень ' + targetLevel, function () {
+            self.closeMenu(); view.setGroupingLevel(targetLevel);
+          });
+        })(level);
+      }
+    });
+    appendMenuGroup(menu, groupingGroup);
+  }
+
   if (columnIndex >= 0) {
+    var customGroup = menuGroup();
     var value = entry.row.columns[columnIndex];
     for (var itemIndex = 0; itemIndex < this.customContextMenuItems.length; itemIndex += 1) {
       (function (item) {
-        addButton(menu, item.title, '', function () {
+        addMenuItem(customGroup, item.title, function () {
           var params = model.isLinkCell(value) ? { value: value.label, ref: value.ref } : { value: value };
           self.closeMenu(); self.bridge.send(item.eventName, params);
-        }, 'menu-item custom-menu-item');
+        }, 'custom-menu-item');
       })(this.customContextMenuItems[itemIndex]);
     }
+    appendMenuGroup(menu, customGroup);
   }
   document.body.appendChild(menu);
   this.menu = menu;
@@ -713,13 +823,13 @@ ViewerApp.prototype.updateSelection = function (view) {
 };
 
 ViewerApp.prototype.expandAll = function () {
-  for (var index = 0; index < this.states.length; index += 1) { this.states[index].collapsed = false; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; }
+  for (var index = 0; index < this.states.length; index += 1) { this.states[index].collapsed = false; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; this.states[index].hiddenRows = {}; }
   this.clearSelection();
   for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
 };
 ViewerApp.prototype.collapseAll = function () {
   for (var index = 0; index < this.states.length; index += 1) {
-    this.states[index].collapsed = true; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null;
+    this.states[index].collapsed = true; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; this.states[index].hiddenRows = {};
     var nodes = model.allNodes(this.data.tables[index]);
     for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) if (nodes[nodeIndex].children.length) this.states[index].collapsedRows[nodes[nodeIndex].id] = true;
   }
@@ -728,11 +838,11 @@ ViewerApp.prototype.collapseAll = function () {
 };
 ViewerApp.prototype.setTableCollapsed = function (tableIndex, collapsed) {
   if (!this.states[tableIndex]) return false;
-  this.states[tableIndex].collapsed = !!collapsed; this.states[tableIndex].rowWindow = null; this.clearSelection(); this.tableViews[tableIndex].updateCollapsed(); return true;
+  this.states[tableIndex].collapsed = !!collapsed; this.states[tableIndex].rowWindow = null; this.states[tableIndex].hiddenRows = {}; this.clearSelection(); this.tableViews[tableIndex].updateCollapsed(); return true;
 };
 ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
   if (!this.states[tableIndex]) return false;
-  var state = this.states[tableIndex]; state.collapsedRows = {}; state.rowWindow = null;
+  var state = this.states[tableIndex]; state.collapsedRows = {}; state.rowWindow = null; state.hiddenRows = {};
   if (!expanded) {
     var nodes = model.allNodes(this.data.tables[tableIndex]);
     for (var index = 0; index < nodes.length; index += 1) if (nodes[index].children.length) state.collapsedRows[nodes[index].id] = true;
@@ -777,7 +887,7 @@ TableView.prototype.createCard = function () {
   var self = this;
   var card = element('section', 'table-card'); card.setAttribute('data-table-index', String(this.tableIndex));
   var titlebar = element('header', 'table-titlebar');
-  this.collapseButton = addButton(titlebar, '−', 'Свернуть таблицу', function () { self.state.collapsed = !self.state.collapsed; self.state.rowWindow = null; self.app.clearSelection(); self.updateCollapsed(); }, 'icon-button');
+  this.collapseButton = addButton(titlebar, '−', 'Свернуть таблицу', function () { self.state.collapsed = !self.state.collapsed; self.resetRowRanges(); self.app.clearSelection(); self.updateCollapsed(); }, 'icon-button');
   titlebar.appendChild(element('strong', 'table-title', this.table.name || 'Таблица ' + (this.tableIndex + 1)));
   this.count = element('span', 'table-count'); titlebar.appendChild(this.count); titlebar.appendChild(element('span', 'title-spacer'));
   if (this.table.isTree) {
@@ -848,6 +958,12 @@ TableView.prototype.entryForRow = function (row) {
 };
 
 TableView.prototype.onGridClick = function (event) {
+  var hiddenMarker = findClassTarget(event.target, 'hidden-row-marker', this.content);
+  if (hiddenMarker) {
+    event.preventDefault(); event.stopPropagation();
+    this.restoreHiddenRange(hiddenMarker._hiddenRowIds || []);
+    return;
+  }
   var toggle = findClassTarget(event.target, 'tree-toggle', this.content);
   if (toggle) {
     var toggleRow = findClassTarget(toggle, 'data-row', this.content); var toggleEntry = this.entryForRow(toggleRow);
@@ -855,7 +971,7 @@ TableView.prototype.onGridClick = function (event) {
     event.preventDefault(); event.stopPropagation();
     if (toggleEntry.expanded) this.state.collapsedRows[toggleEntry.id] = true;
     else delete this.state.collapsedRows[toggleEntry.id];
-    this.state.rowWindow = null; this.app.clearSelection(); this.refreshData(); return;
+    this.resetRowRanges(); this.app.clearSelection(); this.refreshData(); return;
   }
   var link = findClassTarget(event.target, 'cell-link', this.content);
   if (!link) return;
@@ -929,7 +1045,7 @@ TableView.prototype.renderGrid = function () {
     (function (layout) {
       var cell = element('div', 'grid-cell filter-cell'); self.styleCell(cell, layout, true);
       var control = element('div', 'filter-control');
-      addSearchControl(control, 'column-filter-search-control', 'column-filter', 'Фильтр…', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex], 'Очистить фильтр по колонке ' + self.table.columns[layout.modelIndex], self.state.columnFilters[layout.modelIndex], function (value) { self.state.columnFilters[layout.modelIndex] = value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
+      addSearchControl(control, 'column-filter-search-control', 'column-filter', 'Фильтр…', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex], 'Очистить фильтр по колонке ' + self.table.columns[layout.modelIndex], self.state.columnFilters[layout.modelIndex], function (value) { self.state.columnFilters[layout.modelIndex] = value; delete self.state.exactFilters[layout.modelIndex]; self.resetRowRanges(); self.app.clearSelection(); self.refreshData(); });
       var valuesButton = element('button', 'value-filter-button', '▾'); valuesButton.type = 'button'; valuesButton.title = 'Выбрать значения колонки'; valuesButton.setAttribute('aria-label', valuesButton.title);
       valuesButton.addEventListener('click', function (event) { event.stopPropagation(); self.app.openValueFilter(self, layout.modelIndex, valuesButton); });
       self.filterButtons[layout.modelIndex] = valuesButton;
@@ -970,7 +1086,7 @@ TableView.prototype.toggleSort = function (column) {
   else if (this.state.sort.direction === 'asc') this.state.sort.direction = 'desc';
   else if (this.state.sort.direction === 'desc') this.state.sort = { column: -1, direction: null };
   else this.state.sort = { column: column, direction: 'asc' };
-  this.state.rowWindow = null; this.app.clearSelection(); this.renderGrid();
+  this.resetRowRanges(); this.app.clearSelection(); this.renderGrid();
 };
 
 TableView.prototype.updateFilterButtons = function () {
@@ -1007,6 +1123,8 @@ TableView.prototype.applyWidths = function () {
   }
   var rows = this.content.querySelectorAll('.data-row');
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) rows[rowIndex].style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
+  var hiddenMarkers = this.content.querySelectorAll('.hidden-row-marker');
+  for (var markerIndex = 0; markerIndex < hiddenMarkers.length; markerIndex += 1) hiddenMarkers[markerIndex].style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
   for (var index = 0; index < this.layout.columns.length; index += 1) {
     var layout = this.layout.columns[index]; var cells = this.content.querySelectorAll('[data-column="' + layout.modelIndex + '"]');
     for (var cellIndex = 0; cellIndex < cells.length; cellIndex += 1) { cells[cellIndex].style.width = layout.width + 'px'; cells[cellIndex].style.minWidth = layout.width + 'px'; cells[cellIndex].style.maxWidth = layout.width + 'px'; if (layout.pinned) cells[cellIndex].style.left = layout.left + 'px'; }
@@ -1034,15 +1152,20 @@ TableView.prototype.applyHeight = function (singleVisible) {
 TableView.prototype.refreshData = function () {
   this.allVisibleRows = model.buildVisibleRows(this.table, this.state, this.app.globalFilter);
   var windowed = model.applyRowWindow(this.allVisibleRows, this.state.rowWindow);
-  this.visibleRows = windowed.rows; this.hiddenBefore = windowed.hiddenBefore; this.hiddenAfter = windowed.hiddenAfter;
+  var projection = model.applyHiddenRows(windowed.rows, this.state.hiddenRows);
+  this.visibleRows = projection.rows; this.hiddenBefore = windowed.hiddenBefore; this.hiddenAfter = windowed.hiddenAfter;
   var activeGlobal = String(this.app.globalFilter || '').trim() !== '';
-  this.card.style.display = activeGlobal && !this.visibleRows.length ? 'none' : ''; this.count.textContent = '(' + this.visibleRows.length + ' / ' + this.table.nodeCount + ')';
+  this.card.style.display = activeGlobal && !windowed.rows.length ? 'none' : ''; this.count.textContent = '(' + this.visibleRows.length + ' / ' + this.table.nodeCount + ')';
   var pinnedMap = {}; var pinned = [];
   for (var pinIndex = 0; pinIndex < this.state.pinnedRows.length; pinIndex += 1) {
     for (var visibleIndex = 0; visibleIndex < this.visibleRows.length; visibleIndex += 1) if (this.visibleRows[visibleIndex].id === this.state.pinnedRows[pinIndex]) { pinned.push({ entry: this.visibleRows[visibleIndex], visibleIndex: visibleIndex }); pinnedMap[this.visibleRows[visibleIndex].id] = true; break; }
   }
   this.bodyEntries = [];
-  for (var rowIndex = 0; rowIndex < this.visibleRows.length; rowIndex += 1) if (!pinnedMap[this.visibleRows[rowIndex].id]) this.bodyEntries.push({ entry: this.visibleRows[rowIndex], visibleIndex: rowIndex });
+  for (var itemIndex = 0; itemIndex < projection.items.length; itemIndex += 1) {
+    var item = projection.items[itemIndex];
+    if (item.kind === 'marker') this.bodyEntries.push({ kind: 'marker', ids: item.ids });
+    else if (!pinnedMap[item.row.id]) this.bodyEntries.push({ kind: 'row', entry: item.row, visibleIndex: item.visibleIndex });
+  }
   this.pinnedEntries = pinned; this.resetVirtualRows(); this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
   this.applyHeight(false);
   this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
@@ -1051,6 +1174,43 @@ TableView.prototype.refreshData = function () {
 TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.hasVisibleColumnAggregates() ? this.rowHeight + 'px' : '0'; };
 TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
 TableView.prototype.renderRangeMarkers = function () { this.beforeMarker.style.display = this.hiddenBefore ? 'block' : 'none'; this.beforeMarker.textContent = this.hiddenBefore ? 'Показать ' + this.hiddenBefore + ' скрытых строк' : ''; this.afterMarker.style.display = this.hiddenAfter ? 'block' : 'none'; this.afterMarker.textContent = this.hiddenAfter ? 'Показать ' + this.hiddenAfter + ' скрытых строк' : ''; };
+
+TableView.prototype.resetRowRanges = function () {
+  this.state.rowWindow = null;
+  this.state.hiddenRows = {};
+};
+
+TableView.prototype.hideSelectedRows = function (entry) {
+  var clickedIndex = -1;
+  for (var index = 0; index < this.visibleRows.length; index += 1) {
+    if (this.visibleRows[index].id === entry.id) { clickedIndex = index; break; }
+  }
+  if (clickedIndex < 0) return;
+  var start = clickedIndex;
+  var end = clickedIndex;
+  var selection = this.state.selection;
+  if (selection) {
+    var selectedStart = Math.min(selection.startRow, selection.endRow);
+    var selectedEnd = Math.max(selection.startRow, selection.endRow);
+    if (clickedIndex >= selectedStart && clickedIndex <= selectedEnd) {
+      start = Math.max(0, selectedStart);
+      end = Math.min(this.visibleRows.length - 1, selectedEnd);
+    }
+  }
+  for (var rowIndex = start; rowIndex <= end; rowIndex += 1) this.state.hiddenRows[this.visibleRows[rowIndex].id] = true;
+  this.app.clearSelection(); this.refreshData();
+};
+
+TableView.prototype.restoreHiddenRange = function (ids) {
+  for (var index = 0; index < ids.length; index += 1) delete this.state.hiddenRows[ids[index]];
+  this.app.clearSelection(); this.refreshData();
+};
+
+TableView.prototype.setGroupingLevel = function (level) {
+  this.state.collapsedRows = model.collapsedRowsForLevel(this.table, level);
+  this.resetRowRanges();
+  this.app.clearSelection(); this.refreshData();
+};
 
 TableView.prototype.hideRowsAt = function (entry, before) {
   var index = -1;
@@ -1073,11 +1233,28 @@ TableView.prototype.resetVirtualRows = function () {
   this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1;
 };
 
+TableView.prototype.createHiddenMarker = function () {
+  var marker = element('button', 'range-marker hidden-row-marker');
+  marker.type = 'button';
+  return marker;
+};
+
+TableView.prototype.updateHiddenMarker = function (marker, ids) {
+  marker._hiddenRowIds = ids.slice();
+  marker.textContent = 'Показать ' + ids.length + ' скрытых строк';
+  marker.style.height = this.rowHeight + 'px';
+  marker.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
+};
+
 TableView.prototype.renderVirtualRows = function () {
   if (!this.body || this.state.collapsed) return;
   if (!this.bodyEntries.length) {
     if (this.virtualStart === 0 && this.virtualEnd === 0) return;
-    this.resetVirtualRows(); var emptyRow = element('div', 'grid-empty-row', 'Нет строк, соответствующих фильтру.'); emptyRow.style.height = this.rowHeight + 'px'; this.body.appendChild(emptyRow); this.virtualStart = 0; this.virtualEnd = 0; return;
+    this.resetVirtualRows();
+    if (!this.pinnedEntries.length && !this.hiddenBefore && !this.hiddenAfter) {
+      var emptyRow = element('div', 'grid-empty-row', 'Нет строк, соответствующих фильтру.'); emptyRow.style.height = this.rowHeight + 'px'; this.body.appendChild(emptyRow);
+    }
+    this.virtualStart = 0; this.virtualEnd = 0; return;
   }
   var fixed = (2 + this.pinnedEntries.length + (this.hiddenBefore ? 1 : 0)) * this.rowHeight;
   var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8;
@@ -1087,20 +1264,33 @@ TableView.prototype.renderVirtualRows = function () {
   start = Math.min(start, this.bodyEntries.length - targetCount); var end = start + targetCount;
   if (start === this.virtualStart && end === this.virtualEnd) return;
 
-  var target = {}; var kept = {}; var free = []; var index;
+  var target = {}; var kept = {}; var freeRows = []; var freeMarkers = []; var index;
   for (index = start; index < end; index += 1) target[index] = true;
   for (index = 0; index < this.virtualRows.length; index += 1) {
     var oldItem = this.virtualRows[index];
     if (target[oldItem.index]) kept[oldItem.index] = oldItem;
-    else { if (oldItem.node.parentNode === this.body) this.body.removeChild(oldItem.node); free.push(oldItem); }
+    else {
+      if (oldItem.node.parentNode === this.body) this.body.removeChild(oldItem.node);
+      if (oldItem.kind === 'marker') freeMarkers.push(oldItem); else freeRows.push(oldItem);
+    }
   }
 
   var nextRows = [];
   for (index = start; index < end; index += 1) {
     var item = kept[index];
+    var data = this.bodyEntries[index];
+    if (item && item.kind !== data.kind) {
+      if (item.node.parentNode === this.body) this.body.removeChild(item.node);
+      if (item.kind === 'marker') freeMarkers.push(item); else freeRows.push(item);
+      item = null;
+    }
     if (!item) {
-      item = free.length ? free.pop() : { node: this.createRow(false), index: -1 };
-      var data = this.bodyEntries[index]; item.index = index; this.updateRow(item.node, data.entry, data.visibleIndex, false);
+      if (data.kind === 'marker') item = freeMarkers.length ? freeMarkers.pop() : { node: this.createHiddenMarker(), index: -1, kind: 'marker' };
+      else item = freeRows.length ? freeRows.pop() : { node: this.createRow(false), index: -1, kind: 'row' };
+      item.index = index;
+      item.kind = data.kind;
+      if (data.kind === 'marker') this.updateHiddenMarker(item.node, data.ids);
+      else this.updateRow(item.node, data.entry, data.visibleIndex, false);
       item.node.style.position = 'absolute'; item.node.style.top = index * this.rowHeight + 'px';
       var reference = null;
       for (var nextIndex = index + 1; nextIndex < end; nextIndex += 1) {

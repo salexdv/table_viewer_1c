@@ -436,6 +436,65 @@ function applyRowWindow(rows, rowWindow) {
   };
 }
 
+function applyHiddenRows(rows, hiddenRows) {
+  var visibleRows = [];
+  var items = [];
+  var hiddenIds = [];
+
+  function appendMarker() {
+    if (!hiddenIds.length) return;
+    items.push({ kind: 'marker', ids: hiddenIds });
+    hiddenIds = [];
+  }
+
+  for (var index = 0; index < rows.length; index += 1) {
+    var row = rows[index];
+    if (hiddenRows && hiddenRows[row.id]) {
+      hiddenIds.push(row.id);
+      continue;
+    }
+    appendMarker();
+    items.push({ kind: 'row', row: row, visibleIndex: visibleRows.length });
+    visibleRows.push(row);
+  }
+  appendMarker();
+  return { rows: visibleRows, items: items };
+}
+
+function treeDepth(table) {
+  var maximum = 0;
+  var stack = [];
+  for (var rootIndex = table.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
+    stack.push({ node: table.rows[rootIndex], level: 1 });
+  }
+  while (stack.length) {
+    var item = stack.pop();
+    maximum = Math.max(maximum, item.level);
+    for (var childIndex = item.node.children.length - 1; childIndex >= 0; childIndex -= 1) {
+      stack.push({ node: item.node.children[childIndex], level: item.level + 1 });
+    }
+  }
+  return maximum;
+}
+
+function collapsedRowsForLevel(table, level) {
+  var maximum = treeDepth(table);
+  var target = Math.max(1, Math.min(maximum, Number(level) || 1));
+  var collapsed = {};
+  var stack = [];
+  for (var rootIndex = table.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
+    stack.push({ node: table.rows[rootIndex], level: 1 });
+  }
+  while (stack.length) {
+    var item = stack.pop();
+    if (item.node.children.length && item.level >= target) collapsed[item.node.id] = true;
+    for (var childIndex = item.node.children.length - 1; childIndex >= 0; childIndex -= 1) {
+      stack.push({ node: item.node.children[childIndex], level: item.level + 1 });
+    }
+  }
+  return collapsed;
+}
+
 function initialColumnWidth(table, nodes, columnIndex) {
   var headerWidth = table.columns[columnIndex].length * 8 + 48;
   var contentWidth = 0;
@@ -488,7 +547,8 @@ function makeTableState(table) {
     scale: 100,
     sort: { column: -1, direction: null },
     selection: null,
-    rowWindow: null
+    rowWindow: null,
+    hiddenRows: {}
   };
 }
 
@@ -597,6 +657,9 @@ module.exports = {
   buildVisibleRows: buildVisibleRows,
   getAvailableValues: getAvailableValues,
   applyRowWindow: applyRowWindow,
+  applyHiddenRows: applyHiddenRows,
+  treeDepth: treeDepth,
+  collapsedRowsForLevel: collapsedRowsForLevel,
   calculateAggregates: calculateAggregates,
   calculateAggregate: calculateAggregate,
   calculateColumnAggregate: calculateColumnAggregate,

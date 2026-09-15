@@ -71,6 +71,27 @@ async function selectColumnAggregate(page, tableIndex, columnIndex, label) {
   }, label);
 }
 
+async function clickContextMenuItem(page, label) {
+  await page.$$eval('body > .context-menu .menu-item', function (nodes, expectedLabel) {
+    for (var index = 0; index < nodes.length; index += 1) {
+      if (nodes[index].textContent === expectedLabel) { nodes[index].click(); return; }
+    }
+    throw new Error('Пункт контекстного меню не найден: ' + expectedLabel);
+  }, label);
+}
+
+async function openContextSubmenu(page, label) {
+  await page.$$eval('body > .context-menu > .menu-group > .menu-submenu > .menu-submenu-trigger', function (nodes, expectedLabel) {
+    for (var index = 0; index < nodes.length; index += 1) {
+      if (nodes[index].textContent === expectedLabel) {
+        nodes[index].parentNode.dispatchEvent(new MouseEvent('mouseenter'));
+        return;
+      }
+    }
+    throw new Error('Подменю не найдено: ' + expectedLabel);
+  }, label);
+}
+
 async function main() {
   const sourcePath = path.resolve(__dirname, '..', '..', 'dist', 'index.html');
   assert.ok(fs.existsSync(sourcePath), 'Сначала выполните npm run build');
@@ -353,17 +374,13 @@ async function main() {
     assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('10000 / 10000') !== -1);
 
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
-    await page.$$eval('.context-menu .menu-item', function (nodes) {
-      for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent === 'Свернуть строки после') nodes[index].click();
-    });
+    await clickContextMenuItem(page, 'Свернуть после');
     assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('1 / 10000') !== -1);
     assert.strictEqual(await page.$eval('.range-marker-after', function (node) { return node.textContent; }), 'Показать 9999 скрытых строк');
     await page.click('.range-marker-after');
     assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('10000 / 10000') !== -1);
     await page.click('.table-card[data-table-index="0"] [data-row-id="2"] .data-cell', { button: 'right' });
-    await page.$$eval('.context-menu .menu-item', function (nodes) {
-      for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent === 'Свернуть строки до') nodes[index].click();
-    });
+    await clickContextMenuItem(page, 'Свернуть до');
     assert.strictEqual(await page.$eval('.range-marker-before', function (node) { return node.textContent; }), 'Показать 2 скрытых строк');
 
     const sumHeader = await page.$('.table-card[data-table-index="0"] .sort-button:nth-of-type(1)');
@@ -414,20 +431,19 @@ async function main() {
     assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 4') !== -1);
     const firstDataCell = '.table-card[data-table-index="1"] .data-row .data-cell';
     await page.click(firstDataCell, { button: 'right' });
-    assert.strictEqual(await page.$$eval('.context-menu .menu-item', function (nodes) { return nodes.length; }), 3);
-    await page.evaluate(function () {
-      var buttons = document.querySelectorAll('.context-menu .menu-item'); buttons[0].click();
-    });
+    assert.deepStrictEqual(await page.$eval('body > .context-menu', function (menu) {
+      return Array.prototype.map.call(menu.children, function (child) {
+        if (child.className === 'menu-separator') return 'separator';
+        return Array.prototype.map.call(child.children, function (item) { return item.firstElementChild && item.className === 'menu-submenu' ? item.firstElementChild.textContent : item.textContent; }).join('|');
+      });
+    }), ['Отбор по значению', 'separator', 'Зафиксировать строку|Зафиксировать колонку', 'separator', 'Сворачивание', 'separator', 'Уровень группировки']);
+    await clickContextMenuItem(page, 'Зафиксировать колонку');
     assert.ok(await page.$('.table-card[data-table-index="1"] .pinned-column'));
     await page.click(firstDataCell, { button: 'right' });
-    await page.evaluate(function () {
-      var buttons = document.querySelectorAll('.context-menu .menu-item'); buttons[1].click();
-    });
+    await clickContextMenuItem(page, 'Зафиксировать строку');
     assert.ok(await page.$('.table-card[data-table-index="1"] .pinned-row'));
     await page.click(firstDataCell, { button: 'right' });
-    await page.evaluate(function () {
-      var buttons = document.querySelectorAll('.context-menu .menu-item'); buttons[2].click();
-    });
+    await clickContextMenuItem(page, 'Отбор по значению');
     assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('1 / 4') !== -1);
     await page.$eval('.table-card[data-table-index="1"] .column-filter', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
 
@@ -455,6 +471,100 @@ async function main() {
 
     await page.$eval('.table-card[data-table-index="0"] input[type="range"]', function (input) { input.value = '150'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .scale-value', function (node) { return node.textContent; }), '150%');
+
+    await page.evaluate(function () {
+      window.setData({ tables: [
+        { name: 'Сворачивание', columns: ['Название', 'Сумма'], rows: [
+          { columns: ['A', '1'] }, { columns: ['B', '2'] }, { columns: ['C', '3'] },
+          { columns: ['D', '4'] }, { columns: ['E', '5'] }, { columns: ['F', '6'] }
+        ] },
+        { name: 'Уровни', columns: ['Название', 'Сумма'], rows: [
+          { columns: ['Корень', '10'], children: [
+            { columns: ['Ветка', '20'], children: [{ columns: ['Лист', '30'], children: [] }] },
+            { columns: ['Сосед', '40'], children: [] }
+          ] },
+          { columns: ['Второй корень', '50'], children: [] }
+        ] }
+      ] });
+    });
+    await selectColumnAggregate(page, 0, 1, 'Сумма');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '21');
+
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    assert.deepStrictEqual(await page.$eval('body > .context-menu', function (menu) {
+      return Array.prototype.map.call(menu.children, function (child) {
+        if (child.className === 'menu-separator') return 'separator';
+        return Array.prototype.map.call(child.children, function (item) { return item.className === 'menu-submenu' ? item.firstElementChild.textContent : item.textContent; }).join('|');
+      });
+    }), ['Отбор по значению', 'separator', 'Зафиксировать строку|Зафиксировать колонку', 'separator', 'Сворачивание']);
+    await openContextSubmenu(page, 'Сворачивание');
+    assert.deepStrictEqual(await page.$$eval('.menu-submenu-open > .context-submenu .menu-item', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Свернуть выделенные', 'Свернуть до', 'Свернуть после']);
+    assert.deepStrictEqual(await page.$eval('.menu-submenu-open > .context-submenu', function (node) {
+      var box = node.getBoundingClientRect();
+      return { visible: getComputedStyle(node).display !== 'none', inside: box.left >= 4 && box.top >= 4 && box.right <= window.innerWidth - 4 && box.bottom <= window.innerHeight - 4 };
+    }), { visible: true, inside: true });
+    assert.strictEqual(await page.$eval('.menu-submenu-open > .menu-submenu-trigger', function (node) { return node.getAttribute('aria-expanded'); }), 'true');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.$('body > .context-menu'), null);
+
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .number-cell', { button: 'right' });
+    assert.deepStrictEqual(await page.$eval('body > .context-menu', function (menu) {
+      return Array.prototype.map.call(menu.children, function (child) {
+        if (child.className === 'menu-separator') return 'separator';
+        return Array.prototype.map.call(child.children, function (item) { return item.className === 'menu-submenu' ? item.firstElementChild.textContent : item.textContent; }).join('|');
+      });
+    }), ['Зафиксировать строку', 'separator', 'Сворачивание']);
+    await page.keyboard.press('Escape');
+
+    await page.click('.table-card[data-table-index="0"] [data-row-id="4"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Зафиксировать строку');
+    assert.ok(await page.$('.table-card[data-table-index="0"] [data-row-id="4"].pinned-row'));
+    const selectedFirst = await page.$eval('.table-card[data-table-index="0"] [data-row-id="1"] .data-cell', function (node) { var box = node.getBoundingClientRect(); return { x: box.x, y: box.y }; });
+    const selectedLast = await page.$eval('.table-card[data-table-index="0"] [data-row-id="2"] .data-cell', function (node) { var box = node.getBoundingClientRect(); return { x: box.x, y: box.y }; });
+    await page.mouse.move(selectedFirst.x + 8, selectedFirst.y + 8); await page.mouse.down(); await page.mouse.move(selectedLast.x + 8, selectedLast.y + 8); await page.mouse.up();
+    await page.click('.table-card[data-table-index="0"] [data-row-id="2"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Свернуть выделенные');
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 6') !== -1);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .hidden-row-marker', function (node) { return node.textContent; }), 'Показать 2 скрытых строк');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '16');
+
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Свернуть выделенные');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .hidden-row-marker', function (node) { return node.textContent; }), 'Показать 3 скрытых строк');
+    await page.click('.table-card[data-table-index="0"] [data-row-id="4"].pinned-row .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Свернуть выделенные');
+    assert.strictEqual(await page.$('.table-card[data-table-index="0"] [data-row-id="4"].pinned-row'), null);
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="0"] .hidden-row-marker', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Показать 3 скрытых строк', 'Показать 1 скрытых строк']);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '10');
+    await page.$$eval('.table-card[data-table-index="0"] .hidden-row-marker', function (nodes) { nodes[1].click(); });
+    assert.ok(await page.$('.table-card[data-table-index="0"] [data-row-id="4"].pinned-row'));
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '15');
+    await page.click('.table-card[data-table-index="0"] .hidden-row-marker');
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('6 / 6') !== -1);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '21');
+
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await openContextSubmenu(page, 'Уровень группировки');
+    assert.deepStrictEqual(await page.$$eval('.menu-submenu-open > .context-submenu .menu-item', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Уровень 1', 'Уровень 2', 'Уровень 3']);
+    await clickContextMenuItem(page, 'Уровень 1');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('2 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Уровень 2');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Уровень 1');
+    await page.$eval('.table-card[data-table-index="1"] .column-filter', function (input) { input.value = 'Лист'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('3 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] .column-filter-search-control .search-clear-button');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('2 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Уровень 3');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('5 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0.0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Свернуть после');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('2 / 5') !== -1);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="1"] .range-marker-after', function (node) { return node.textContent; }), 'Показать 3 скрытых строк');
+    await page.click('.table-card[data-table-index="1"] .range-marker-after');
 
     await page.evaluate(function () {
       window.__highlightEvents = [];
@@ -549,17 +659,22 @@ async function main() {
       ] });
     });
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
-    assert.deepStrictEqual(await page.$$eval('.context-menu .menu-item', function (nodes) {
-      return nodes.map(function (node) { return node.textContent; });
+    assert.deepStrictEqual(await page.$eval('body > .context-menu', function (menu) {
+      return Array.prototype.map.call(menu.children, function (child) {
+        if (child.className === 'menu-separator') return 'separator';
+        return Array.prototype.map.call(child.children, function (item) { return item.className === 'menu-submenu' ? item.firstElementChild.textContent : item.textContent; }).join('|');
+      });
     }), [
-      'Зафиксировать колонку', 'Зафиксировать строку', 'Свернуть строки до', 'Свернуть строки после',
-      'Отбор по значению', '<img src=x onerror=alert(1)>', 'Вторая команда'
+      'Отбор по значению', 'separator', 'Зафиксировать строку|Зафиксировать колонку', 'separator',
+      'Сворачивание', 'separator', '<img src=x onerror=alert(1)>|Вторая команда'
     ]);
     assert.strictEqual(await page.$$eval('.context-menu img', function (nodes) { return nodes.length; }), 0);
     await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 2);
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 4);
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .number-cell', { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 1);
 
     for (let rowIndex = 0; rowIndex < 5; rowIndex += 1) {
       await page.click('.table-card[data-table-index="0"] [data-row-id="' + rowIndex + '"] .data-cell', { button: 'right' });

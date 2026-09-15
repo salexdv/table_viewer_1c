@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Группы контекстного меню и сворачивание строк
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-15
 updated: 2026-09-15

@@ -249,6 +249,35 @@ describe('модель данных', function () {
     });
   });
 
+  it('строит маркеры последовательных скрытых строк', function () {
+    const rows = [
+      { id: '0' }, { id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }, { id: '5' }
+    ];
+    const projection = model.applyHiddenRows(rows, { '0': true, '2': true, '3': true, '5': true });
+    assert.deepEqual(projection.rows.map(function (row) { return row.id; }), ['1', '4']);
+    assert.deepEqual(projection.items.map(function (item) {
+      return item.kind === 'row' ? 'row:' + item.row.id + ':' + item.visibleIndex : 'marker:' + item.ids.join(',');
+    }), ['marker:0', 'row:1:0', 'marker:2,3', 'row:4:1', 'marker:5']);
+  });
+
+  it('рассчитывает глубину и свёрнутые ветви для уровня группировки без рекурсии', function () {
+    let deep = { columns: ['Последний'], children: [] };
+    for (let index = 0; index < 2500; index += 1) deep = { columns: ['Уровень ' + index], children: [deep] };
+    const deepTable = model.parseData(tableData([deep])).tables[0];
+    assert.equal(model.treeDepth(deepTable), 2501);
+
+    const table = model.parseData(tableData([
+      { columns: ['Корень'], children: [
+        { columns: ['Ветка'], children: [{ columns: ['Лист'], children: [] }] },
+        { columns: ['Короткая ветка'], children: [] }
+      ] }
+    ])).tables[0];
+    assert.equal(model.treeDepth(table), 3);
+    assert.deepEqual(model.collapsedRowsForLevel(table, 1), { '0': true, '0.0': true });
+    assert.deepEqual(model.collapsedRowsForLevel(table, 2), { '0.0': true });
+    assert.deepEqual(model.collapsedRowsForLevel(table, 3), {});
+  });
+
   it('подбирает начальные ширины колонок по содержимому и глубине номера', function () {
     const data = model.parseData(tableData([
       { columns: ['Коротко'], children: [{ columns: ['Очень длинное содержимое ячейки для проверки ширины'] }] }
