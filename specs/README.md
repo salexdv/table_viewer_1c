@@ -26,3 +26,4 @@
   адаптивная компоновка и переиспользуемая виртуализация.
 - [`optional-column-aggregates`](done/optional-column-aggregates/spec.md) — отключаемые по умолчанию итоги колонок
   и условный подвал таблицы.
+- [`compact-scrollbars`](done/compact-scrollbars/spec.md) — компактные полосы прокрутки страницы и таблиц.

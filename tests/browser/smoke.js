@@ -109,6 +109,17 @@ async function main() {
     assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Развернуть все', 'Свернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
     assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
     assert.strictEqual(await page.$eval('.export-button', function (node) { return getComputedStyle(node).display; }), 'none');
+    const scrollbarStyles = await page.evaluate(function () {
+      var viewport = document.querySelector('.table-card[data-table-index="0"] .grid-viewport');
+      var rootScrollbar = getComputedStyle(document.documentElement, '::-webkit-scrollbar');
+      var tableScrollbar = getComputedStyle(viewport, '::-webkit-scrollbar');
+      return {
+        root: { width: rootScrollbar.width, height: rootScrollbar.height, standard: getComputedStyle(document.documentElement).scrollbarWidth },
+        table: { width: tableScrollbar.width, height: tableScrollbar.height, standard: getComputedStyle(viewport).scrollbarWidth }
+      };
+    });
+    assert.deepStrictEqual(scrollbarStyles.root, { width: '6px', height: '6px', standard: 'thin' });
+    assert.deepStrictEqual(scrollbarStyles.table, { width: '6px', height: '6px', standard: 'thin' });
     const initialLayout = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
       var content = node.querySelector('.grid-content');
       var cells = node.querySelectorAll('.header-row .header-cell:not(.number-cell)');
@@ -117,6 +128,24 @@ async function main() {
     assert.ok(Math.abs(initialLayout.content - initialLayout.viewport) <= 1, 'Колонки должны заполнять доступную ширину');
     assert.ok(initialLayout.first > initialLayout.second, 'Свободная ширина должна распределяться пропорционально');
     assert.ok(initialLayout.height <= Math.round(800 * 0.58) + 1, 'Несколько таблиц сохраняют ограничение высоты');
+    const verticalScroll = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
+      node.scrollTop = node.scrollHeight;
+      var result = { overflow: node.scrollHeight > node.clientHeight, position: node.scrollTop };
+      node.scrollTop = 0;
+      return result;
+    });
+    assert.ok(verticalScroll.overflow && verticalScroll.position > 0, 'Вертикальная прокрутка таблицы должна работать');
+    const horizontalScroll = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
+      var content = node.querySelector('.grid-content');
+      var oldWidth = content.style.width;
+      content.style.width = node.clientWidth + 100 + 'px';
+      node.scrollLeft = node.scrollWidth;
+      var result = { overflow: node.scrollWidth > node.clientWidth, position: node.scrollLeft };
+      node.scrollLeft = 0;
+      content.style.width = oldWidth;
+      return result;
+    });
+    assert.ok(horizontalScroll.overflow && horizontalScroll.position > 0, 'Горизонтальная прокрутка таблицы должна работать');
     assert.ok((await page.$eval('.table-count', function (node) { return node.textContent; })).indexOf('10000 / 10000') !== -1);
     const numberStyle = await page.$eval('.table-card[data-table-index="0"] .data-row .number-cell', function (node) { var style = getComputedStyle(node); return { color: style.color, weight: style.fontWeight }; });
     assert.notStrictEqual(numberStyle.color, 'rgb(239, 69, 69)');

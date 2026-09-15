@@ -9,6 +9,8 @@
 * { box-sizing: border-box; }
 html, body { width: 100%; min-height: 100%; margin: 0; }
 body { overflow-x: hidden; background: #eef3f8; }
+html, .grid-viewport { scrollbar-width: thin; }
+html::-webkit-scrollbar, .grid-viewport::-webkit-scrollbar { width: 6px; height: 6px; }
 button, input, select { font: inherit; }
 button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; outline-offset: -1px; }
 .app { min-height: 100vh; padding: 8px; }
