@@ -24,7 +24,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .toolbar-commands, .toolbar-group, .tree-command-group { display: -webkit-box; display: flex; align-items: center; }
 .toolbar-commands { gap: 0; margin-left: auto; white-space: nowrap; }
 .toolbar-group { gap: 5px; }
-.toolbar-group + .toolbar-group { margin-left: 7px; padding-left: 7px; border-left: 1px solid #c3cfdd; }
+.toolbar-group + .toolbar-group { margin-left: 10px; padding-left: 10px; border-left: 1px solid #c3cfdd; }
 .button, .icon-button, .menu-item { min-height: 30px; padding: 4px 10px; border: 1px solid #b9c7d8; border-radius: 4px; color: #30445f; background: #fff; cursor: pointer; }
 .button:hover, .icon-button:hover, .menu-item:hover { border-color: #7da8df; background: #eef5ff; }
 .button-primary { border-color: #2473dc; color: #fff; background: #2f7fea; }
