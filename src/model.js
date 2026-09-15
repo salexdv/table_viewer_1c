@@ -205,16 +205,73 @@ function normalizeSearch(value) {
   return String(value || '').trim().toLocaleLowerCase();
 }
 
+function parseSearchQuery(value) {
+  var normalized = normalizeSearch(value);
+  return normalized ? normalized.split(/\s+/) : [];
+}
+
+function matchesSearchFragments(value, fragments) {
+  if (!fragments.length) return false;
+  var text = normalizeSearch(cellText(value));
+  var offset = 0;
+  for (var index = 0; index < fragments.length; index += 1) {
+    var found = text.indexOf(fragments[index], offset);
+    if (found === -1) return false;
+    offset = found + fragments[index].length;
+  }
+  return true;
+}
+
+function matchesSearch(value, query) {
+  return matchesSearchFragments(value, parseSearchQuery(query));
+}
+
+function mergeRanges(ranges) {
+  ranges.sort(function (left, right) {
+    return left.start === right.start ? left.end - right.end : left.start - right.start;
+  });
+  var merged = [];
+  for (var index = 0; index < ranges.length; index += 1) {
+    var current = ranges[index];
+    var previous = merged.length ? merged[merged.length - 1] : null;
+    if (previous && current.start <= previous.end) previous.end = Math.max(previous.end, current.end);
+    else merged.push({ start: current.start, end: current.end });
+  }
+  return merged;
+}
+
+function findSearchHighlightRanges(value, queries) {
+  var source = cellText(value);
+  var text = source.toLocaleLowerCase();
+  var list = Array.isArray(queries) ? queries : [queries];
+  var ranges = [];
+  for (var queryIndex = 0; queryIndex < list.length; queryIndex += 1) {
+    var fragments = parseSearchQuery(list[queryIndex]);
+    if (!matchesSearchFragments(source, fragments)) continue;
+    for (var fragmentIndex = 0; fragmentIndex < fragments.length; fragmentIndex += 1) {
+      var fragment = fragments[fragmentIndex];
+      var offset = 0;
+      while (offset <= text.length - fragment.length) {
+        var found = text.indexOf(fragment, offset);
+        if (found === -1) break;
+        ranges.push({ start: found, end: found + fragment.length });
+        offset = found + fragment.length;
+      }
+    }
+  }
+  return mergeRanges(ranges);
+}
+
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
 function rowMatches(row, state, globalFilter, ignoredColumn) {
-  var globalNeedle = normalizeSearch(globalFilter);
-  if (globalNeedle) {
+  var globalFragments = parseSearchQuery(globalFilter);
+  if (globalFragments.length) {
     var globalMatch = false;
     for (var cellIndex = 0; cellIndex < row.columns.length; cellIndex += 1) {
-      if (normalizeSearch(cellText(row.columns[cellIndex])).indexOf(globalNeedle) !== -1) {
+      if (matchesSearchFragments(row.columns[cellIndex], globalFragments)) {
         globalMatch = true;
         break;
       }
@@ -226,11 +283,12 @@ function rowMatches(row, state, globalFilter, ignoredColumn) {
     if (index === ignoredColumn) continue;
     var filter = state.columnFilters[index];
     var actual = normalizeSearch(cellText(row.columns[index]));
-    if (filter) {
+    var filterFragments = parseSearchQuery(filter);
+    if (filterFragments.length) {
       var expected = normalizeSearch(filter);
       if (state.exactFilters[index]) {
         if (actual !== expected) return false;
-      } else if (actual.indexOf(expected) === -1) return false;
+      } else if (!matchesSearchFragments(row.columns[index], filterFragments)) return false;
     }
     var selected = state.valueFilters && state.valueFilters[index];
     if (selected && !hasOwn(selected, cellText(row.columns[index]))) return false;
@@ -239,9 +297,9 @@ function rowMatches(row, state, globalFilter, ignoredColumn) {
 }
 
 function hasActiveFilters(state, globalFilter) {
-  if (normalizeSearch(globalFilter)) return true;
+  if (parseSearchQuery(globalFilter).length) return true;
   for (var index = 0; index < state.columnFilters.length; index += 1) {
-    if (normalizeSearch(state.columnFilters[index])) return true;
+    if (parseSearchQuery(state.columnFilters[index]).length) return true;
     if (state.valueFilters && state.valueFilters[index]) return true;
   }
   return false;
@@ -548,6 +606,9 @@ module.exports = {
   calculateSelectionSum: calculateSelectionSum,
   formatNumber: formatNumber,
   hasActiveFilters: hasActiveFilters,
+  parseSearchQuery: parseSearchQuery,
+  matchesSearch: matchesSearch,
+  findSearchHighlightRanges: findSearchHighlightRanges,
   isLinkCell: isLinkCell,
   allNodes: allNodes
 };

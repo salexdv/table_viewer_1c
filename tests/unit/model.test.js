@@ -87,6 +87,46 @@ describe('модель данных', function () {
     assert.deepEqual(visible.map(function (item) { return item.number; }), ['1', '1.1']);
   });
 
+  it('разбирает пробелы и ищет фрагменты по порядку внутри одной ячейки', function () {
+    assert.deepEqual(model.parseSearchQuery('  УПРАВ\t  тор  '), ['управ', 'тор']);
+    assert.isTrue(model.matchesSearch('1С:Управление торговлей 8', 'управ тор'));
+    assert.isFalse(model.matchesSearch('Торговля и управление', 'управ тор'));
+    assert.isTrue(model.matchesSearch('Управление управляемой торговлей', 'управ управ тор'));
+    assert.isFalse(model.matchesSearch('Управление торговлей', 'управ управ'));
+    assert.isFalse(model.matchesSearch('Управление торговлей', '   '));
+  });
+
+  it('не объединяет фрагменты глобального поиска из разных ячеек', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Управление торговлей', 'Полное совпадение'] },
+      { columns: ['Управление', 'Торговля'] },
+      { columns: ['Торговля и управление', 'Обратный порядок'] }
+    ], ['Название', 'Описание']));
+    const state = model.makeTableState(data.tables[0]);
+    const visible = model.buildVisibleRows(data.tables[0], state, 'УПРАВ   тор');
+    assert.deepEqual(visible.map(function (item) { return item.row.columns[1]; }), ['Полное совпадение']);
+  });
+
+  it('применяет поиск по фрагментам к текстовому фильтру колонки', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Управление торговлей'] },
+      { columns: ['Торговля и управление'] }
+    ]));
+    const state = model.makeTableState(data.tables[0]);
+    state.columnFilters[0] = 'управ тор';
+    const visible = model.buildVisibleRows(data.tables[0], state, '');
+    assert.deepEqual(visible.map(function (item) { return item.row.columns[0]; }), ['Управление торговлей']);
+  });
+
+  it('возвращает объединённые диапазоны всех вхождений только для полного совпадения', function () {
+    assert.deepEqual(model.findSearchHighlightRanges('Управление торговлей: управление', ['управ тор', 'торг']), [
+      { start: 0, end: 5 },
+      { start: 11, end: 15 },
+      { start: 22, end: 27 }
+    ]);
+    assert.deepEqual(model.findSearchHighlightRanges('Торговля и управление', 'управ тор'), []);
+  });
+
   it('объединяет колонковые фильтры через AND и поддерживает точное сравнение', function () {
     const data = model.parseData(tableData([
       { columns: ['Москва', 'Склад 1'] },

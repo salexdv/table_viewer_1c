@@ -289,10 +289,14 @@ async function main() {
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"]', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="1"]', function (node) { return getComputedStyle(node).display; }), 'none');
-    await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true })); });
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="1"] .data-row', function (nodes) {
+      return nodes.map(function (node) { return node.querySelectorAll('.search-highlight').length; });
+    }), [0, 0, 1], 'Предки найденного узла не должны подсвечиваться');
+    await page.click('.global-search-control .search-clear-button');
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"]', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="1"]', function (node) { return getComputedStyle(node).display; }), 'none');
+    assert.strictEqual(await page.$eval('.global-search-control .search-clear-button', function (node) { return getComputedStyle(node).display; }), 'none');
 
     await page.$eval('.global-search', function (input) { input.value = 'Строка'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await new Promise(function (resolve) { setTimeout(resolve, 190); });
@@ -301,8 +305,10 @@ async function main() {
     });
     assert.ok(singleHeight.height > 620, 'Одна большая таблица должна использовать доступную высоту');
     assert.ok(Math.abs(singleHeight.windowHeight - singleHeight.bottom - 8) <= 2, 'Одиночная таблица должна доходить до нижнего отступа');
-    await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.ok(await page.$('.table-card[data-table-index="0"] .search-highlight'));
+    await page.click('.global-search-control .search-clear-button');
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
+    assert.strictEqual(await page.$('.data-row .search-highlight'), null, 'Переиспользованные строки должны терять старую подсветку');
 
     await selectColumnAggregate(page, 0, 2, 'Среднее');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
@@ -332,7 +338,7 @@ async function main() {
     });
     await page.$eval('.value-filter-search', function (input) { input.value = 'Строка 9999'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     assert.strictEqual(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }), 1);
-    await page.$eval('.value-filter-search', function (input) { input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true })); });
+    await page.click('.value-filter-search-control .search-clear-button');
     assert.ok(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }) > 1, 'Очистка поиска значений должна восстановить список');
     await page.$eval('.value-filter-search', function (input) { input.value = 'Строка 9999'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.click('.value-filter-option input');
@@ -404,10 +410,7 @@ async function main() {
     await page.click('button[title="Настроить отображение колонок"]');
     assert.strictEqual(await page.$('.column-panel'), null);
 
-    await page.evaluate(function () {
-      var input = document.querySelector('.table-card[data-table-index="1"] .column-filter');
-      input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true }));
-    });
+    await page.click('.table-card[data-table-index="1"] .column-filter-search-control .search-clear-button');
     assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 4') !== -1);
     const firstDataCell = '.table-card[data-table-index="1"] .data-row .data-cell';
     await page.click(firstDataCell, { button: 'right' });
@@ -452,6 +455,58 @@ async function main() {
 
     await page.$eval('.table-card[data-table-index="0"] input[type="range"]', function (input) { input.value = '150'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .scale-value', function (node) { return node.textContent; }), '150%');
+
+    await page.evaluate(function () {
+      window.__highlightEvents = [];
+      document.getElementById('event-button').addEventListener('click', function (event) {
+        if (event.eventData1C) window.__highlightEvents.push(event.eventData1C);
+      });
+      window.setData({ tables: [
+        { name: 'Поиск', columns: ['Ссылка', 'Наименование'], rows: [
+          { columns: [{ label: '1С:Управление торговлей 8', ref: 'e1cib/data/Test?ref=search' }, '1С:Управление торговлей 8'] },
+          { columns: ['Управление', 'Торговля'] },
+          { columns: ['Торговля и управление', 'Обратный порядок'] }
+        ] },
+        { name: 'Дерево поиска', columns: ['Ссылка', 'Наименование'], rows: [
+          { columns: ['Управление', 'Корень'], children: [
+            { columns: [{ label: 'Управление торговлей', ref: 'e1cib/data/Test?ref=tree-search' }, 'Управление торговлей'], children: [] }
+          ] }
+        ] }
+      ] });
+    });
+    await page.$eval('.global-search', function (input) { input.value = '  УПРАВ   тор  '; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('1 / 3') !== -1);
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('2 / 2') !== -1);
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="0"] [data-row-id="0"] .search-highlight', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Управ', 'тор', 'Управ', 'тор']);
+    assert.strictEqual(await page.$$eval('.table-card[data-table-index="1"] [data-row-id="0"] .search-highlight', function (nodes) { return nodes.length; }), 0);
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="1"] [data-row-id="0.0"] .search-highlight', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Управ', 'тор', 'Управ', 'тор']);
+    await page.click('.table-card[data-table-index="0"] .cell-link .search-highlight');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__highlightEvents; }), [
+      { event: 'EVENT_ON_LINK_CLICK', params: { label: '1С:Управление торговлей 8', href: 'e1cib/data/Test?ref=search' } }
+    ]);
+    await page.click('.global-search-control .search-clear-button');
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('3 / 3') !== -1);
+
+    const nameFilter = '.table-card[data-table-index="0"] .filter-cell[data-column="1"] .column-filter';
+    await page.$eval(nameFilter, function (input) { input.value = 'управ тор'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('1 / 3') !== -1);
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="0"] [data-row-id="0"] [data-column="1"] .search-highlight', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['Управ', 'тор']);
+    assert.strictEqual(await page.$$eval('.table-card[data-table-index="0"] [data-row-id="0"] [data-column="0"] .search-highlight', function (nodes) { return nodes.length; }), 0);
+    await page.click('.table-card[data-table-index="0"] .filter-cell[data-column="1"] .search-clear-button');
+    assert.ok((await page.$eval('.table-card[data-table-index="0"] .table-count', function (node) { return node.textContent; })).indexOf('3 / 3') !== -1);
+
+    await page.click('.table-card[data-table-index="0"] .filter-cell[data-column="1"] .value-filter-button');
+    await page.$eval('.value-filter-search', function (input) { input.value = 'Обратный'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.strictEqual(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }), 1);
+    await page.click('.value-filter-search-control .search-clear-button');
+    assert.strictEqual(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }), 3);
+    assert.strictEqual(await page.$eval('.value-filter-search-control .search-clear-button', function (node) { return getComputedStyle(node).display; }), 'none');
+    await page.$$eval('.value-filter-actions .button', function (nodes) {
+      for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent === 'Отмена') nodes[index].click();
+    });
 
     await page.evaluate(function () {
       window.__events = [];

@@ -61,6 +61,57 @@ function bindSearchInput(input, onChange) {
   }
   input.addEventListener('input', handleChange);
   input.addEventListener('search', handleChange);
+  input.addEventListener('change', handleChange);
+  return handleChange;
+}
+
+function addSearchControl(parent, controlClass, inputClass, placeholder, label, clearLabel, value, onChange) {
+  var control = element('div', 'search-control ' + controlClass);
+  var input = element('input', 'search-input ' + inputClass);
+  input.type = 'text';
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', label);
+  input.value = value || '';
+  var clearButton = element('button', 'search-clear-button', '×');
+  clearButton.type = 'button';
+  clearButton.title = clearLabel;
+  clearButton.setAttribute('aria-label', clearLabel);
+  function updateClearButton() {
+    clearButton.style.display = input.value ? '' : 'none';
+  }
+  var notify = bindSearchInput(input, function () {
+    updateClearButton();
+    onChange(input.value);
+  });
+  clearButton.addEventListener('click', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    input.value = '';
+    notify();
+    input.focus();
+  });
+  control.appendChild(input);
+  control.appendChild(clearButton);
+  parent.appendChild(control);
+  updateClearButton();
+  return { control: control, input: input, clearButton: clearButton };
+}
+
+function appendHighlightedText(parent, text, ranges) {
+  if (!ranges.length) {
+    parent.textContent = text;
+    return;
+  }
+  var offset = 0;
+  for (var index = 0; index < ranges.length; index += 1) {
+    var range = ranges[index];
+    if (range.start > offset) parent.appendChild(document.createTextNode(text.slice(offset, range.start)));
+    var mark = element('mark', 'search-highlight');
+    mark.textContent = text.slice(range.start, range.end);
+    parent.appendChild(mark);
+    offset = range.end;
+  }
+  if (offset < text.length) parent.appendChild(document.createTextNode(text.slice(offset)));
 }
 
 function requestFrame(callback) {
@@ -254,21 +305,15 @@ ViewerApp.prototype.render = function () {
   clear(this.root);
   this.tableViews = [];
   var toolbar = element('div', 'global-toolbar');
-  var search = element('input', 'global-search');
-  search.type = 'search';
-  search.placeholder = 'Поиск по всем таблицам…';
-  search.setAttribute('aria-label', 'Глобальный поиск');
-  search.value = this.globalFilter;
-  bindSearchInput(search, function () {
+  addSearchControl(toolbar, 'global-search-control', 'global-search', 'Поиск по всем таблицам…', 'Глобальный поиск', 'Очистить глобальный поиск', this.globalFilter, function (value) {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
     self.globalSearchTimer = setTimeout(function () {
-      self.globalFilter = search.value;
+      self.globalFilter = value;
       self.resetRowWindows();
       self.clearSelection();
       self.refreshTables();
     }, 120);
   });
-  toolbar.appendChild(search);
   var commands = element('div', 'toolbar-commands');
   var columnsGroup = element('div', 'toolbar-group toolbar-columns-group');
   var columnsButton = addButton(columnsGroup, 'Колонки', 'Настроить отображение колонок', function (event) {
@@ -465,9 +510,8 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
   var panel = element('div', 'value-filter-panel');
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', 'Фильтр значений колонки ' + view.table.columns[columnIndex]);
-  var search = element('input', 'value-filter-search');
-  search.type = 'search'; search.placeholder = 'Найти значение…'; search.setAttribute('aria-label', 'Поиск значений');
-  panel.appendChild(search);
+  var searchControl = addSearchControl(panel, 'value-filter-search-control', 'value-filter-search', 'Найти значение…', 'Поиск значений', 'Очистить поиск значений', '', filterValues);
+  var search = searchControl.input;
   var commands = element('div', 'value-filter-commands'); panel.appendChild(commands);
   var list = element('div', 'value-filter-list'); list.setAttribute('role', 'group');
   var canvas = element('div', 'value-filter-canvas'); list.appendChild(canvas); panel.appendChild(list);
@@ -475,8 +519,8 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
   var filtered = values.slice();
   var itemHeight = 27;
 
-  function filterValues() {
-    var needle = String(search.value || '').trim().toLocaleLowerCase();
+  function filterValues(value) {
+    var needle = String(value || '').trim().toLocaleLowerCase();
     filtered = [];
     for (var index = 0; index < values.length; index += 1) {
       if (!needle || values[index].label.toLocaleLowerCase().indexOf(needle) !== -1) filtered.push(values[index]);
@@ -521,7 +565,6 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
     view.state.valueFilters[columnIndex] = null; view.state.rowWindow = null;
     self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
   }, 'button button-small');
-  bindSearchInput(search, filterValues);
   list.addEventListener('scroll', renderList);
   panel.addEventListener('click', function (event) { event.stopPropagation(); });
   document.body.appendChild(panel); this.filterPanel = panel;
@@ -886,12 +929,11 @@ TableView.prototype.renderGrid = function () {
     (function (layout) {
       var cell = element('div', 'grid-cell filter-cell'); self.styleCell(cell, layout, true);
       var control = element('div', 'filter-control');
-      var input = element('input', 'column-filter'); input.type = 'search'; input.placeholder = 'Фильтр…'; input.value = self.state.columnFilters[layout.modelIndex]; input.setAttribute('aria-label', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex]);
-      bindSearchInput(input, function () { self.state.columnFilters[layout.modelIndex] = input.value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
+      addSearchControl(control, 'column-filter-search-control', 'column-filter', 'Фильтр…', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex], 'Очистить фильтр по колонке ' + self.table.columns[layout.modelIndex], self.state.columnFilters[layout.modelIndex], function (value) { self.state.columnFilters[layout.modelIndex] = value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
       var valuesButton = element('button', 'value-filter-button', '▾'); valuesButton.type = 'button'; valuesButton.title = 'Выбрать значения колонки'; valuesButton.setAttribute('aria-label', valuesButton.title);
       valuesButton.addEventListener('click', function (event) { event.stopPropagation(); self.app.openValueFilter(self, layout.modelIndex, valuesButton); });
       self.filterButtons[layout.modelIndex] = valuesButton;
-      control.appendChild(input); control.appendChild(valuesButton); cell.appendChild(control); self.filterRow.appendChild(cell);
+      control.appendChild(valuesButton); cell.appendChild(control); self.filterRow.appendChild(cell);
     })(this.layout.columns[filterIndex]);
   }
   this.content.appendChild(this.filterRow); this.pinnedHost = element('div', 'pinned-rows'); this.content.appendChild(this.pinnedHost);
@@ -1087,8 +1129,9 @@ TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
   for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
     var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var title = model.cellText(value); var type = this.table.columnTypes[layout.modelIndex];
     cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : ''); cell.title = title; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
-    if (model.isLinkCell(value)) { var link = element('a', 'cell-link', value.label); link.href = '#'; cell.appendChild(link); }
-    else cell.textContent = title;
+    var ranges = model.findSearchHighlightRanges(value, [this.app.globalFilter, this.state.columnFilters[layout.modelIndex]]);
+    if (model.isLinkCell(value)) { var link = element('a', 'cell-link'); link.href = '#'; appendHighlightedText(link, title, ranges); cell.appendChild(link); }
+    else appendHighlightedText(cell, title, ranges);
     if (this.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
   }
 };

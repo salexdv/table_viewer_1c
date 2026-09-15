@@ -20,7 +20,12 @@ button, input, select { font: inherit; }
 button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; outline-offset: -1px; }
 .app { min-height: 100vh; padding: 8px; }
 .global-toolbar { position: -webkit-sticky; position: sticky; top: 0; z-index: 30; display: -webkit-box; display: flex; gap: 8px; align-items: center; padding: 7px; border: 1px solid #cbd7e6; border-radius: 6px; background: #f8fbff; box-shadow: 0 1px 4px rgba(37, 59, 88, 0.08); }
-.global-search { width: 50%; min-width: 180px; max-width: 50%; height: 30px; padding: 4px 9px; border: 1px solid #bdcada; border-radius: 4px; -webkit-box-flex: 0; flex: 0 1 50%; color: #26364d; background: #fff; }
+.search-control { position: relative; min-width: 0; }
+.search-input { padding-right: 26px; }
+.search-clear-button { position: absolute; top: 1px; right: 1px; width: 24px; height: calc(100% - 2px); padding: 0; border: 0; border-radius: 3px; color: #718299; font-size: 17px; line-height: 1; background: transparent; cursor: pointer; }
+.search-clear-button:hover { color: #285f9e; background: #e7f1fc; }
+.global-search-control { width: 50%; min-width: 180px; max-width: 50%; -webkit-box-flex: 0; flex: 0 1 50%; }
+.global-search { width: 100%; height: 30px; padding-top: 4px; padding-bottom: 4px; padding-left: 9px; border: 1px solid #bdcada; border-radius: 4px; color: #26364d; background: #fff; }
 .toolbar-commands, .toolbar-group, .tree-command-group { display: -webkit-box; display: flex; align-items: center; }
 .toolbar-commands { gap: 0; margin-left: auto; white-space: nowrap; }
 .toolbar-group { gap: 5px; }
@@ -64,7 +69,8 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .column-resizer:hover { background: #4b93e6; }
 .filter-cell { padding: 2px 4px; background: #f6f9fd; }
 .filter-control { display: -webkit-box; display: flex; width: 100%; height: 100%; }
-.column-filter { min-width: 0; height: 100%; min-height: 20px; padding: 1px 5px; border: 1px solid #cad6e4; border-radius: 3px 0 0 3px; -webkit-box-flex: 1; flex: 1; color: #30445f; background: #fff; }
+.column-filter-search-control { height: 100%; -webkit-box-flex: 1; flex: 1; }
+.column-filter { width: 100%; min-width: 0; height: 100%; min-height: 20px; padding-top: 1px; padding-bottom: 1px; padding-left: 5px; border: 1px solid #cad6e4; border-radius: 3px 0 0 3px; color: #30445f; background: #fff; }
 .value-filter-button { width: 24px; min-height: 20px; padding: 0; margin: 0; border: 1px solid #cad6e4; border-radius: 3px; color: #60748d; background: #fff; cursor: pointer; }
 .value-filter-button:hover, .value-filter-button-active { color: #185ca8; background: #dcecff; }
 .number-cell { -webkit-box-flex: 0; flex: none; color: #314157; font-weight: 400; background: #f8fbff; }
@@ -78,6 +84,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .numeric-cell { text-align: right; }
 .cell-link { color: #2f7ee8; text-decoration: none; }
 .cell-link:hover { text-decoration: underline; }
+.search-highlight { padding: 0; color: inherit; background: #ffe08a; }
 .tree-toggle { display: inline-block; width: 18px; height: 18px; margin: 0 2px 0 0; padding: 0; border: 0; color: #2f7ee8; background: transparent; cursor: pointer; }
 .tree-spacer { display: inline-block; width: 20px; }
 .row-number { vertical-align: middle; }
@@ -109,7 +116,8 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .selection-result-value { color: #1d4f91; font-weight: 700; text-align: right; }
 .selection-empty { padding: 3px 2px; color: #6d7d91; }
 .value-filter-panel { position: fixed; z-index: 130; width: 290px; padding: 8px; border: 1px solid #b9c7d8; border-radius: 6px; background: #fff; box-shadow: 0 8px 22px rgba(28, 47, 73, 0.25); }
-.value-filter-search { width: 100%; height: 28px; padding: 3px 7px; border: 1px solid #cad6e4; border-radius: 4px; color: #30445f; background: #fff; }
+.value-filter-search-control { width: 100%; height: 28px; }
+.value-filter-search { width: 100%; height: 28px; padding-top: 3px; padding-bottom: 3px; padding-left: 7px; border: 1px solid #cad6e4; border-radius: 4px; color: #30445f; background: #fff; }
 .value-filter-commands, .value-filter-actions { display: -webkit-box; display: flex; gap: 4px; margin-top: 6px; }
 .value-filter-actions { justify-content: flex-end; }
 .value-filter-list { position: relative; height: 220px; margin-top: 6px; overflow-y: auto; border: 1px solid #d8e1eb; background: #fff; }
@@ -126,7 +134,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 
 @media (max-width: 760px) {
   .global-toolbar { position: relative; -webkit-box-lines: multiple; flex-wrap: wrap; }
-  .global-search { width: 100%; max-width: none; flex-basis: 100%; }
+  .global-search-control { width: 100%; max-width: none; flex-basis: 100%; }
   .toolbar-commands { width: 100%; margin-left: 0; justify-content: flex-end; }
   .table-titlebar { -webkit-box-lines: multiple; flex-wrap: wrap; }
   .title-spacer { display: none; }

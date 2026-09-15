@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Поиск по фрагментам, подсветка и надёжная очистка
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-15
 updated: 2026-09-15
