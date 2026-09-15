@@ -113,13 +113,17 @@ async function main() {
       var viewport = document.querySelector('.table-card[data-table-index="0"] .grid-viewport');
       var rootScrollbar = getComputedStyle(document.documentElement, '::-webkit-scrollbar');
       var tableScrollbar = getComputedStyle(viewport, '::-webkit-scrollbar');
+      var rootTrack = getComputedStyle(document.documentElement, '::-webkit-scrollbar-track');
+      var tableTrack = getComputedStyle(viewport, '::-webkit-scrollbar-track');
+      var rootThumb = getComputedStyle(document.documentElement, '::-webkit-scrollbar-thumb');
+      var tableThumb = getComputedStyle(viewport, '::-webkit-scrollbar-thumb');
       return {
-        root: { width: rootScrollbar.width, height: rootScrollbar.height, standard: getComputedStyle(document.documentElement).scrollbarWidth },
-        table: { width: tableScrollbar.width, height: tableScrollbar.height, standard: getComputedStyle(viewport).scrollbarWidth }
+        root: { width: rootScrollbar.width, height: rootScrollbar.height, standard: getComputedStyle(document.documentElement).scrollbarWidth, track: rootTrack.backgroundColor, thumb: rootThumb.backgroundColor },
+        table: { width: tableScrollbar.width, height: tableScrollbar.height, standard: getComputedStyle(viewport).scrollbarWidth, track: tableTrack.backgroundColor, thumb: tableThumb.backgroundColor }
       };
     });
-    assert.deepStrictEqual(scrollbarStyles.root, { width: '6px', height: '6px', standard: 'thin' });
-    assert.deepStrictEqual(scrollbarStyles.table, { width: '6px', height: '6px', standard: 'thin' });
+    assert.deepStrictEqual(scrollbarStyles.root, { width: '6px', height: '6px', standard: 'thin', track: 'rgb(238, 243, 248)', thumb: 'rgb(130, 152, 177)' });
+    assert.deepStrictEqual(scrollbarStyles.table, { width: '6px', height: '6px', standard: 'thin', track: 'rgb(238, 243, 248)', thumb: 'rgb(130, 152, 177)' });
     const initialLayout = await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) {
       var content = node.querySelector('.grid-content');
       var cells = node.querySelectorAll('.header-row .header-cell:not(.number-cell)');

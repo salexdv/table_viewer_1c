@@ -9,8 +9,10 @@
 * { box-sizing: border-box; }
 html, body { width: 100%; min-height: 100%; margin: 0; }
 body { overflow-x: hidden; background: #eef3f8; }
-html, .grid-viewport { scrollbar-width: thin; }
+html, .grid-viewport { scrollbar-width: thin; scrollbar-color: #8298b1 #eef3f8; }
 html::-webkit-scrollbar, .grid-viewport::-webkit-scrollbar { width: 6px; height: 6px; }
+html::-webkit-scrollbar-track, .grid-viewport::-webkit-scrollbar-track { background: #eef3f8; }
+html::-webkit-scrollbar-thumb, .grid-viewport::-webkit-scrollbar-thumb { border-radius: 3px; background: #8298b1; }
 button, input, select { font: inherit; }
 button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; outline-offset: -1px; }
 .app { min-height: 100vh; padding: 8px; }
@@ -38,7 +40,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .scale-control { display: -webkit-box; display: flex; align-items: center; gap: 4px; white-space: nowrap; color: #65768b; font-size: 11px; margin-left: 10px;}
 .scale-control input { width: 90px; }
 .scale-value { min-width: 38px; text-align: right; color: #2670ca; font-weight: 700; }
-.grid-viewport { position: relative; width: 100%; overflow: auto; background: #fff; scrollbar-color: #a8b9cd #eef3f8; }
+.grid-viewport { position: relative; width: 100%; overflow: auto; background: #fff; }
 .grid-content { position: relative; min-height: 100%; }
 .grid-row { display: -webkit-box; display: flex; width: 100%; min-width: 100%; }
 .header-row, .filter-row { position: -webkit-sticky; position: sticky; z-index: 7; }
