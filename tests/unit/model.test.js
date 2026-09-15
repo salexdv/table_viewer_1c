@@ -166,6 +166,28 @@ describe('модель данных', function () {
     assert.deepEqual(total, { count: 4, sum: 33 });
   });
 
+  it('считает все агрегаты выделения одним пакетом', function () {
+    const data = model.parseData(tableData([
+      { columns: ['1', '20%', 'текст'] },
+      { columns: ['2', '10%', '3'] }
+    ], ['Число', 'Процент', 'Смешанная']));
+    const state = model.makeTableState(data.tables[0]);
+    const visible = model.buildVisibleRows(data.tables[0], state, '');
+    const aggregates = model.calculateSelectionAggregates(data.tables[0], visible, {
+      startRow: 0, endRow: 1, startColumn: 0, endColumn: 2
+    }, [0, 1, 2]);
+    assert.deepEqual(aggregates, {
+      count: 4,
+      kind: 'number',
+      results: { sum: 33, average: 8.25, min: 1, max: 20, count: 4 }
+    });
+    assert.deepEqual(model.calculateSelectionAggregates(data.tables[0], visible, null, [0, 1, 2]), {
+      count: 0,
+      kind: 'number',
+      results: { sum: 0, average: null, min: null, max: null, count: 0 }
+    });
+  });
+
   it('считает пять агрегатов и различает однородные проценты', function () {
     assert.deepEqual(model.calculateAggregate(['10', '20', null], 'sum'), { count: 2, value: 30, kind: 'number' });
     assert.deepEqual(model.calculateAggregate(['10', '20'], 'average'), { count: 2, value: 15, kind: 'number' });

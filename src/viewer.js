@@ -191,15 +191,18 @@ function ViewerApp(root) {
   this.globalSearchTimer = null;
   this.layoutFrame = null;
   this.pageScrollbarTimer = null;
-  this.selectionAggregate = 'sum';
-  this.selectionView = null;
+  this.selectionResults = null;
+  this.selectionPopup = null;
+  this.selectionButton = null;
   this.customContextMenuItems = [];
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
+  this.onDocumentKeyDown = this.onKeyDown.bind(this);
   this.onWindowResize = this.scheduleTableLayouts.bind(this);
   this.onWindowScroll = this.activatePageScrollbar.bind(this);
   document.addEventListener('mouseup', this.onDocumentMouseUp);
   document.addEventListener('click', this.onDocumentMouseDown);
+  document.addEventListener('keydown', this.onDocumentKeyDown);
   window.addEventListener('resize', this.onWindowResize);
   window.addEventListener('scroll', this.onWindowScroll);
 }
@@ -219,8 +222,7 @@ ViewerApp.prototype.load = function (input) {
     this.data = model.parseData(source);
     this.states = this.data.tables.map(model.makeTableState);
     this.globalFilter = '';
-    this.selectionAggregate = 'sum';
-    this.selectionView = null;
+    this.selectionResults = null;
     this.render();
     return true;
   } catch (error) {
@@ -248,6 +250,7 @@ ViewerApp.prototype.showError = function (error) {
 
 ViewerApp.prototype.render = function () {
   var self = this;
+  this.closeSelectionPopup();
   clear(this.root);
   this.tableViews = [];
   var toolbar = element('div', 'global-toolbar');
@@ -266,31 +269,29 @@ ViewerApp.prototype.render = function () {
     }, 120);
   });
   toolbar.appendChild(search);
-  var columnsButton = addButton(toolbar, 'Колонки', 'Настроить отображение колонок', function (event) {
+  var commands = element('div', 'toolbar-commands');
+  var columnsGroup = element('div', 'toolbar-group toolbar-columns-group');
+  var columnsButton = addButton(columnsGroup, 'Колонки', 'Настроить отображение колонок', function (event) {
     event.stopPropagation();
     self.toggleColumnPanel(columnsButton);
   });
-  addIconButton(toolbar, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
-  addIconButton(toolbar, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
-  addButton(toolbar, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary export-button export-button-temporarily-hidden');
-  var selectionControl = element('div', 'selection-control');
-  this.selectionAggregateSelect = element('select', 'selection-aggregate');
-  this.selectionAggregateSelect.setAttribute('aria-label', 'Функция для выделенных ячеек');
-  for (var aggregateIndex = 0; aggregateIndex < AGGREGATES.length; aggregateIndex += 1) {
-    var option = element('option', '', AGGREGATES[aggregateIndex].label);
-    option.value = AGGREGATES[aggregateIndex].value;
-    this.selectionAggregateSelect.appendChild(option);
-  }
-  this.selectionAggregateSelect.value = this.selectionAggregate;
-  this.selectionAggregateSelect.disabled = true;
-  this.selectionAggregateSelect.addEventListener('change', function () {
-    self.selectionAggregate = self.selectionAggregateSelect.value;
-    if (self.selectionView) self.updateSelection(self.selectionView);
-  });
-  selectionControl.appendChild(this.selectionAggregateSelect);
-  this.selectionSummary = element('output', 'selection-summary', 'Числа не выделены');
-  selectionControl.appendChild(this.selectionSummary);
-  toolbar.appendChild(selectionControl);
+  commands.appendChild(columnsGroup);
+  var globalGroup = element('div', 'toolbar-group toolbar-global-group');
+  addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
+  addIconButton(globalGroup, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
+  addButton(globalGroup, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary export-button export-button-temporarily-hidden');
+  commands.appendChild(globalGroup);
+  var selectionGroup = element('div', 'toolbar-group toolbar-selection-group');
+  this.selectionButton = addButton(selectionGroup, 'Ʃ', 'Показать итоги выделенных ячеек', function (event) {
+    event.stopPropagation();
+    self.toggleSelectionPopup();
+  }, 'button selection-aggregate-button');
+  this.selectionButton.setAttribute('aria-label', this.selectionButton.title);
+  this.selectionButton.setAttribute('aria-haspopup', 'true');
+  this.selectionButton.setAttribute('aria-expanded', 'false');
+  this.selectionButton.setAttribute('aria-controls', 'selection-aggregates-popup');
+  commands.appendChild(selectionGroup);
+  toolbar.appendChild(commands);
   this.root.appendChild(toolbar);
   this.tablesHost = element('main', 'tables-host');
   this.root.appendChild(this.tablesHost);
@@ -338,6 +339,7 @@ ViewerApp.prototype.updateTableLayouts = function () {
     view.applyWidths();
     view.renderVirtualRows();
   }
+  this.positionSelectionPopup();
 };
 
 ViewerApp.prototype.resetRowWindows = function () {
@@ -345,6 +347,7 @@ ViewerApp.prototype.resetRowWindows = function () {
 };
 
 ViewerApp.prototype.toggleColumnPanel = function (anchor) {
+  this.closeSelectionPopup();
   if (this.columnPanel) { this.closeColumnPanel(); return; }
   var self = this;
   var panel = element('div', 'column-panel');
@@ -404,10 +407,16 @@ ViewerApp.prototype.onOutsidePointer = function (event) {
   if (this.menu && !this.menu.contains(event.target)) this.closeMenu();
   if (this.columnPanel && !this.columnPanel.contains(event.target)) this.closeColumnPanel();
   if (this.filterPanel && !this.filterPanel.contains(event.target)) this.closeFilterPanel();
+  if (this.selectionPopup && !this.selectionPopup.contains(event.target) && event.target !== this.selectionButton) this.closeSelectionPopup();
+};
+
+ViewerApp.prototype.onKeyDown = function (event) {
+  if ((event.key === 'Escape' || event.keyCode === 27) && this.selectionPopup) this.closeSelectionPopup();
 };
 
 ViewerApp.prototype.openAggregateMenu = function (view, columnIndex, anchor) {
   var self = this;
+  this.closeSelectionPopup();
   this.closeMenu();
   var menu = element('div', 'context-menu aggregate-menu');
   menu.setAttribute('role', 'menu');
@@ -445,6 +454,7 @@ ViewerApp.prototype.addContextMenuItem = function (title, eventName) {
 
 ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
   var self = this;
+  this.closeSelectionPopup();
   this.closeFilterPanel();
   this.closeMenu();
   var values = model.getAvailableValues(view.table, view.state, this.globalFilter, columnIndex);
@@ -523,6 +533,7 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
 
 ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
   var self = this;
+  this.closeSelectionPopup();
   this.closeMenu();
   var menu = element('div', 'context-menu');
   menu.setAttribute('role', 'menu');
@@ -578,6 +589,58 @@ ViewerApp.prototype.closeMenu = function () {
   this.menu = null;
 };
 
+ViewerApp.prototype.positionSelectionPopup = function () {
+  if (!this.selectionPopup || !this.selectionButton) return;
+  var rect = this.selectionButton.getBoundingClientRect();
+  this.selectionPopup.style.left = Math.max(4, Math.min(rect.right - this.selectionPopup.offsetWidth, window.innerWidth - this.selectionPopup.offsetWidth - 4)) + 'px';
+  this.selectionPopup.style.top = Math.max(4, Math.min(rect.bottom + 3, window.innerHeight - this.selectionPopup.offsetHeight - 4)) + 'px';
+};
+
+ViewerApp.prototype.renderSelectionPopup = function () {
+  if (!this.selectionPopup) return;
+  clear(this.selectionPopup);
+  if (!this.selectionResults || !this.selectionResults.count) {
+    this.selectionPopup.appendChild(element('div', 'selection-empty', 'Числа не выделены'));
+    this.positionSelectionPopup();
+    return;
+  }
+  for (var index = 0; index < AGGREGATES.length; index += 1) {
+    var aggregate = AGGREGATES[index];
+    var row = element('div', 'selection-result-row');
+    row.appendChild(element('span', 'selection-result-label', aggregate.label));
+    row.appendChild(element('span', 'selection-result-value', formatAggregate({
+      value: this.selectionResults.results[aggregate.value],
+      kind: this.selectionResults.kind
+    }, aggregate.value)));
+    this.selectionPopup.appendChild(row);
+  }
+  this.positionSelectionPopup();
+};
+
+ViewerApp.prototype.toggleSelectionPopup = function () {
+  if (this.selectionPopup) { this.closeSelectionPopup(); return; }
+  this.closeMenu();
+  this.closeColumnPanel();
+  this.closeFilterPanel();
+  var popup = element('div', 'selection-aggregates-popup');
+  popup.id = 'selection-aggregates-popup';
+  popup.setAttribute('role', 'tooltip');
+  document.body.appendChild(popup);
+  this.selectionPopup = popup;
+  this.selectionButton.setAttribute('aria-expanded', 'true');
+  this.selectionButton.setAttribute('aria-describedby', popup.id);
+  this.renderSelectionPopup();
+};
+
+ViewerApp.prototype.closeSelectionPopup = function () {
+  if (this.selectionPopup && this.selectionPopup.parentNode) this.selectionPopup.parentNode.removeChild(this.selectionPopup);
+  this.selectionPopup = null;
+  if (this.selectionButton) {
+    this.selectionButton.setAttribute('aria-expanded', 'false');
+    this.selectionButton.removeAttribute('aria-describedby');
+  }
+};
+
 ViewerApp.prototype.beginSelection = function (view, rowIndex, columnIndex, shiftKey) {
   if (shiftKey && view.state.selection) {
     view.state.selection.endRow = rowIndex; view.state.selection.endColumn = columnIndex;
@@ -598,16 +661,12 @@ ViewerApp.prototype.clearSelection = function () {
   for (var index = 0; index < this.states.length; index += 1) this.states[index].selection = null;
   for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateRenderedSelection();
   this.draggingView = null;
-  this.selectionView = null;
-  if (this.selectionSummary) this.selectionSummary.textContent = 'Числа не выделены';
-  if (this.selectionAggregateSelect) this.selectionAggregateSelect.disabled = true;
+  this.selectionResults = null;
+  this.renderSelectionPopup();
 };
 ViewerApp.prototype.updateSelection = function (view) {
-  var result = model.calculateSelectionAggregate(view.table, view.visibleRows, view.state.selection, view.visibleColumns, this.selectionAggregate);
-  this.selectionView = result.count ? view : null;
-  this.selectionAggregateSelect.disabled = !result.count;
-  if (!result.count) { this.selectionSummary.textContent = 'Числа не выделены'; return; }
-  this.selectionSummary.textContent = 'Выделено чисел: ' + result.count + ' · ' + aggregateLabel(this.selectionAggregate) + ': ' + formatAggregate(result, this.selectionAggregate);
+  this.selectionResults = model.calculateSelectionAggregates(view.table, view.visibleRows, view.state.selection, view.visibleColumns);
+  this.renderSelectionPopup();
 };
 
 ViewerApp.prototype.expandAll = function () {
@@ -657,10 +716,11 @@ ViewerApp.prototype.destroy = function () {
   for (var index = 0; index < this.tableViews.length; index += 1) this.tableViews[index].cancelScheduledRender();
   document.removeEventListener('mouseup', this.onDocumentMouseUp);
   document.removeEventListener('click', this.onDocumentMouseDown);
+  document.removeEventListener('keydown', this.onDocumentKeyDown);
   window.removeEventListener('resize', this.onWindowResize);
   window.removeEventListener('scroll', this.onWindowScroll);
   this.cancelPageScrollbar();
-  this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.bridge.destroy(); clear(this.root);
+  this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy(); clear(this.root);
 };
 
 function TableView(app, table, state, tableIndex) {
@@ -678,8 +738,10 @@ TableView.prototype.createCard = function () {
   titlebar.appendChild(element('strong', 'table-title', this.table.name || 'Таблица ' + (this.tableIndex + 1)));
   this.count = element('span', 'table-count'); titlebar.appendChild(this.count); titlebar.appendChild(element('span', 'title-spacer'));
   if (this.table.isTree) {
-    addIconButton(titlebar, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'icon-button tree-command-button expand-tree-button');
-    addIconButton(titlebar, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'icon-button tree-command-button collapse-tree-button');
+    var treeCommands = element('div', 'tree-command-group');
+    addIconButton(treeCommands, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'icon-button tree-command-button expand-tree-button');
+    addIconButton(treeCommands, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'icon-button tree-command-button collapse-tree-button');
+    titlebar.appendChild(treeCommands);
   }
   var scaleLabel = element('label', 'scale-control'); scaleLabel.appendChild(document.createTextNode('Масштаб '));
   var slider = element('input'); slider.type = 'range'; slider.min = '50'; slider.max = '200'; slider.step = '10'; slider.value = String(this.state.scale); slider.setAttribute('aria-label', 'Масштаб таблицы');
@@ -1013,7 +1075,8 @@ TableView.prototype.createRow = function (pinned) {
   var row = element('div', 'grid-row data-row' + (pinned ? ' pinned-row' : '')); row.setAttribute('role', 'row');
   row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; row.appendChild(this.createNumberCell());
   for (var index = 0; index < this.layout.columns.length; index += 1) {
-    var layout = this.layout.columns[index]; var cell = element('div', 'grid-cell data-cell'); cell.setAttribute('role', 'gridcell'); cell.setAttribute('data-visible-column', String(layout.visibleIndex)); this.styleCell(cell, layout, false); row.appendChild(cell);
+    var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var numericClass = type === 'number' || type === 'percent' ? ' numeric-cell' : '';
+    var cell = element('div', 'grid-cell data-cell' + numericClass); cell.setAttribute('role', 'gridcell'); cell.setAttribute('data-visible-column', String(layout.visibleIndex)); this.styleCell(cell, layout, false); row.appendChild(cell);
   }
   return row;
 };
@@ -1022,8 +1085,8 @@ TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
   row.className = 'grid-row data-row' + (pinned ? ' pinned-row' : ''); row.setAttribute('data-row-id', entry.id); row.setAttribute('data-visible-row', String(visibleRowIndex));
   row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; this.updateNumberCell(row.children[0], entry);
   for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
-    var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var title = model.cellText(value);
-    cell.className = 'grid-cell data-cell' + (layout.pinned ? ' pinned-column' : ''); cell.title = title; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
+    var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var title = model.cellText(value); var type = this.table.columnTypes[layout.modelIndex];
+    cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : ''); cell.title = title; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
     if (model.isLinkCell(value)) { var link = element('a', 'cell-link', value.label); link.href = '#'; cell.appendChild(link); }
     else cell.textContent = title;
     if (this.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
@@ -1056,7 +1119,7 @@ TableView.prototype.renderFooter = function () {
   if (!this.hasVisibleColumnAggregates()) { this.footer.style.display = 'none'; return; }
   this.footer.style.display = '';
   var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);
-  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var aggregate = this.state.columnAggregates[layout.modelIndex]; var text = ''; if ((type === 'number' || type === 'percent') && aggregate && aggregate !== 'none') { var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
+  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var aggregate = this.state.columnAggregates[layout.modelIndex]; var text = ''; if ((type === 'number' || type === 'percent') && aggregate && aggregate !== 'none') { var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : ''), text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
 };
 TableView.prototype.updateCollapsed = function () { this.gridHost.style.display = this.state.collapsed ? 'none' : ''; this.collapseButton.textContent = this.state.collapsed ? '+' : '−'; this.collapseButton.title = this.state.collapsed ? 'Развернуть таблицу' : 'Свернуть таблицу'; if (!this.state.collapsed) this.refreshData(); this.app.scheduleTableLayouts(); };
 

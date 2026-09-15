@@ -106,9 +106,38 @@ async function main() {
       return nodes.map(function (node) { return { text: node.textContent, title: node.title, label: node.getAttribute('aria-label'), icons: node.querySelectorAll('svg[aria-hidden="true"]').length }; });
     });
     assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '']);
-    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Развернуть все', 'Свернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Свернуть все', 'Развернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
     assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
+    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return node.className; }); }), [
+      'toolbar-group toolbar-columns-group',
+      'toolbar-group toolbar-global-group',
+      'toolbar-group toolbar-selection-group'
+    ]);
+    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return getComputedStyle(node).borderLeftWidth; }); }), ['0px', '1px', '1px']);
+    const desktopToolbar = await page.$eval('.global-toolbar', function (node) {
+      return { toolbar: node.getBoundingClientRect().width, search: node.querySelector('.global-search').getBoundingClientRect().width };
+    });
+    assert.ok(desktopToolbar.search <= desktopToolbar.toolbar / 2 + 1, 'Поиск не должен занимать больше половины панели');
+    const treeCommandLayout = await page.$$eval('.tree-command-group .tree-command-button', function (nodes) {
+      var first = nodes[0].getBoundingClientRect(); var second = nodes[1].getBoundingClientRect(); var icon = nodes[0].querySelector('svg').getBoundingClientRect();
+      return { firstWidth: first.width, firstHeight: first.height, secondWidth: second.width, secondHeight: second.height, gap: second.left - first.right, iconWidth: icon.width, iconHeight: icon.height };
+    });
+    assert.deepStrictEqual(treeCommandLayout, { firstWidth: 30, firstHeight: 28, secondWidth: 30, secondHeight: 28, gap: 8, iconWidth: 18, iconHeight: 18 });
     assert.strictEqual(await page.$eval('.export-button', function (node) { return getComputedStyle(node).display; }), 'none');
+    assert.strictEqual(await page.$eval('.selection-aggregate-button', function (node) { return node.textContent; }), 'Ʃ');
+    await page.click('.selection-aggregate-button');
+    assert.strictEqual(await page.$eval('.selection-aggregates-popup', function (node) { return node.textContent; }), 'Числа не выделены');
+    assert.strictEqual(await page.$eval('.selection-aggregate-button', function (node) { return node.getAttribute('aria-expanded'); }), 'true');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.$('.selection-aggregates-popup'), null);
+    assert.strictEqual(await page.$eval('.selection-aggregate-button', function (node) { return node.getAttribute('aria-expanded'); }), 'false');
+    await page.setViewport({ width: 700, height: 800 });
+    const mobileToolbar = await page.$eval('.global-toolbar', function (node) {
+      return { toolbar: node.getBoundingClientRect().width, search: node.querySelector('.global-search').getBoundingClientRect().width };
+    });
+    assert.ok(mobileToolbar.search >= mobileToolbar.toolbar - 20, 'На узком экране поиск должен занимать отдельную строку');
+    await page.setViewport({ width: 1280, height: 800 });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
     await page.hover('.global-toolbar');
     const scrollbarStyles = await page.evaluate(function () {
       var viewport = document.querySelector('.table-card[data-table-index="0"] .grid-viewport');
@@ -191,10 +220,24 @@ async function main() {
     const dataHeaderBackground = await page.$eval('.table-card[data-table-index="0"] .header-row .header-cell[data-column="0"]', function (node) { return getComputedStyle(node).backgroundColor; });
     assert.strictEqual(numberHeaderStyle.background, dataHeaderBackground);
     assert.strictEqual(numberHeaderStyle.align, 'left');
+    const columnAlignment = await page.evaluate(function () {
+      return {
+        text: getComputedStyle(document.querySelector('.table-card[data-table-index="0"] .data-cell[data-column="0"]')).textAlign,
+        number: getComputedStyle(document.querySelector('.table-card[data-table-index="0"] .data-cell[data-column="1"]')).textAlign,
+        numberClass: document.querySelector('.table-card[data-table-index="0"] .data-cell[data-column="1"]').className,
+        header: getComputedStyle(document.querySelector('.table-card[data-table-index="0"] .header-cell[data-column="1"] .sort-button')).textAlign,
+        filter: getComputedStyle(document.querySelector('.table-card[data-table-index="0"] .filter-cell[data-column="1"] .column-filter')).textAlign
+      };
+    });
+    assert.strictEqual(columnAlignment.text, 'start');
+    assert.strictEqual(columnAlignment.number, 'right');
+    assert.ok(columnAlignment.numberClass.indexOf('numeric-cell') !== -1);
+    assert.strictEqual(columnAlignment.header, 'left');
+    assert.notStrictEqual(columnAlignment.filter, 'right');
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="0"] .aggregate-button', function (nodes) { return nodes.length; }), 2);
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="1"] .aggregate-button', function (nodes) { return nodes.length; }), 1);
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
-    assert.deepStrictEqual(await page.$$eval('.selection-aggregate option', function (nodes) { return nodes.map(function (node) { return node.value; }); }), ['sum', 'average', 'min', 'max', 'count']);
+    assert.strictEqual(await page.$('.selection-aggregate'), null);
     await page.click('.table-card[data-table-index="0"] .header-cell[data-column="2"] .aggregate-button');
     assert.strictEqual(await page.$eval('.aggregate-menu .menu-item-active', function (node) { return node.textContent; }), '\u2713 Нет');
     assert.deepStrictEqual(await page.$$eval('.aggregate-menu .menu-item', function (nodes) { return nodes.map(function (node) { return node.textContent.replace(/^\u2713\s*/, ''); }); }), ['Нет', 'Сумма', 'Среднее', 'Минимум', 'Максимум', 'Количество']);
@@ -266,6 +309,7 @@ async function main() {
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="2"]', function (node) { return node.textContent; }), '5000,5');
     await selectColumnAggregate(page, 0, 1, 'Сумма');
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '49995000');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return getComputedStyle(node).textAlign; }), 'right');
     await selectColumnAggregate(page, 0, 2, 'Нет');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
     await selectColumnAggregate(page, 0, 1, 'Нет');
@@ -491,9 +535,27 @@ async function main() {
     const cells = await page.$$('.table-card[data-table-index="0"] .data-cell[data-column="1"]');
     const first = await cells[0].boundingBox(); const second = await cells[1].boundingBox();
     await page.mouse.move(first.x + 8, first.y + 8); await page.mouse.down(); await page.mouse.move(second.x + 8, second.y + 8); await page.mouse.up();
-    assert.ok((await page.$eval('.selection-summary', function (node) { return node.textContent; })).indexOf('Сумма: 40') !== -1);
-    await page.select('.selection-aggregate', 'average');
-    assert.ok((await page.$eval('.selection-summary', function (node) { return node.textContent; })).indexOf('Среднее: 20') !== -1);
+    await page.click('.selection-aggregate-button');
+    assert.deepStrictEqual(await page.$$eval('.selection-result-row', function (nodes) {
+      return nodes.map(function (node) { return { label: node.querySelector('.selection-result-label').textContent, value: node.querySelector('.selection-result-value').textContent }; });
+    }), [
+      { label: 'Сумма', value: '40' },
+      { label: 'Среднее', value: '20' },
+      { label: 'Минимум', value: '15' },
+      { label: 'Максимум', value: '25' },
+      { label: 'Количество', value: '2' }
+    ]);
+    assert.strictEqual(await page.$eval('.selection-aggregate-button', function (node) { return node.getAttribute('aria-expanded'); }), 'true');
+    await page.click('.selection-aggregate-button');
+    assert.strictEqual(await page.$('.selection-aggregates-popup'), null);
+    await page.click('.selection-aggregate-button');
+    await page.mouse.move(first.x + 8, first.y + 8); await page.mouse.down();
+    assert.deepStrictEqual(await page.$$eval('.selection-result-value', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['25', '25', '25', '25', '1']);
+    await page.mouse.up();
+    assert.strictEqual(await page.$('.selection-aggregates-popup'), null);
+    await page.click('.selection-aggregate-button');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.$('.selection-aggregates-popup'), null);
 
     assert.strictEqual(await page.evaluate(function () { return window.collapseAll(); }), true);
     assert.strictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none');

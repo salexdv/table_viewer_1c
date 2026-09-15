@@ -19,20 +19,25 @@ html:hover::-webkit-scrollbar-thumb, html.scrollbar-active::-webkit-scrollbar-th
 button, input, select { font: inherit; }
 button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; outline-offset: -1px; }
 .app { min-height: 100vh; padding: 8px; }
-.global-toolbar { position: -webkit-sticky; position: sticky; top: 0; z-index: 30; display: -webkit-box; display: flex; gap: 5px; align-items: center; padding: 7px; border: 1px solid #cbd7e6; border-radius: 6px; background: #f8fbff; box-shadow: 0 1px 4px rgba(37, 59, 88, 0.08); }
-.global-search { min-width: 180px; height: 30px; padding: 4px 9px; border: 1px solid #bdcada; border-radius: 4px; -webkit-box-flex: 1; flex: 1; color: #26364d; background: #fff; }
+.global-toolbar { position: -webkit-sticky; position: sticky; top: 0; z-index: 30; display: -webkit-box; display: flex; gap: 8px; align-items: center; padding: 7px; border: 1px solid #cbd7e6; border-radius: 6px; background: #f8fbff; box-shadow: 0 1px 4px rgba(37, 59, 88, 0.08); }
+.global-search { width: 50%; min-width: 180px; max-width: 50%; height: 30px; padding: 4px 9px; border: 1px solid #bdcada; border-radius: 4px; -webkit-box-flex: 0; flex: 0 1 50%; color: #26364d; background: #fff; }
+.toolbar-commands, .toolbar-group, .tree-command-group { display: -webkit-box; display: flex; align-items: center; }
+.toolbar-commands { gap: 0; margin-left: auto; white-space: nowrap; }
+.toolbar-group { gap: 5px; }
+.toolbar-group + .toolbar-group { margin-left: 7px; padding-left: 7px; border-left: 1px solid #c3cfdd; }
 .button, .icon-button, .menu-item { min-height: 30px; padding: 4px 10px; border: 1px solid #b9c7d8; border-radius: 4px; color: #30445f; background: #fff; cursor: pointer; }
 .button:hover, .icon-button:hover, .menu-item:hover { border-color: #7da8df; background: #eef5ff; }
 .button-primary { border-color: #2473dc; color: #fff; background: #2f7fea; }
 .button-primary:hover { color: #fff; background: #236fd3; }
 .button-small { min-height: 24px; padding: 2px 7px; font-size: 11px; }
 .command-icon-button { width: 30px; height: 30px; }
-.tree-command-button { width: 26px; height: 24px; }
+.tree-command-group { gap: 8px; }
+.icon-button.tree-command-button { width: 30px; height: 28px; min-height: 28px; }
+.tree-command-button .button-icon { width: 18px; height: 18px; }
 .button-icon { display: block; width: 16px; height: 16px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .export-button-temporarily-hidden { display: none; }
-.selection-control { display: -webkit-box; display: flex; align-items: stretch; margin-left: auto; white-space: nowrap; }
-.selection-aggregate { min-height: 30px; padding: 3px 5px; border: 1px solid #c8d5e4; height: 24px; border-radius: 4px 0 0 4px; color: #30445f; background: #fff; }
-.selection-summary { min-width: 150px; padding: 5px 9px; border: 1px solid #c8d5e4; border-radius: 0 4px 4px 0; text-align: right; font-weight: 700; color: #1d4f91; background: #fff; white-space: nowrap; }
+.selection-aggregate-button { width: 34px; padding: 4px; color: #1d4f91; font-size: 18px; font-weight: 700; }
+.selection-aggregate-button[aria-expanded="true"] { border-color: #7da8df; background: #eef5ff; }
 .tables-host { margin-top: 8px; }
 .table-card { margin-bottom: 10px; overflow: hidden; border: 1px solid #c2cfdd; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(31, 51, 78, 0.07); }
 .table-titlebar { display: -webkit-box; display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 7px; border-bottom: 1px solid #ced9e6; background: #edf3fa; }
@@ -70,6 +75,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .data-row:nth-child(even) { background: #f8fbfe; }
 .data-row:hover { background: #edf5ff; }
 .data-cell { -webkit-box-flex: 0; flex: none; color: #314157; -webkit-user-select: none; user-select: none; }
+.numeric-cell { text-align: right; }
 .cell-link { color: #2f7ee8; text-decoration: none; }
 .cell-link:hover { text-decoration: underline; }
 .tree-toggle { display: inline-block; width: 18px; height: 18px; margin: 0 2px 0 0; padding: 0; border: 0; color: #2f7ee8; background: transparent; cursor: pointer; }
@@ -96,6 +102,12 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .context-menu { position: fixed; z-index: 120; min-width: 205px; padding: 4px; border: 1px solid #b9c7d8; border-radius: 5px; background: #fff; box-shadow: 0 7px 20px rgba(28, 47, 73, 0.25); }
 .menu-item { display: block; width: 100%; min-height: 28px; border: 0; text-align: left; }
 .menu-item-active { color: #185ca8; background: #eef5ff; }
+.selection-aggregates-popup { position: fixed; z-index: 140; min-width: 220px; padding: 7px 9px; border: 1px solid #b9c7d8; border-radius: 5px; color: #30445f; background: #fff; box-shadow: 0 7px 20px rgba(28, 47, 73, 0.25); }
+.selection-result-row { display: -webkit-box; display: flex; justify-content: space-between; gap: 24px; padding: 3px 2px; }
+.selection-result-row + .selection-result-row { border-top: 1px solid #edf1f6; }
+.selection-result-label { color: #5c6f87; }
+.selection-result-value { color: #1d4f91; font-weight: 700; text-align: right; }
+.selection-empty { padding: 3px 2px; color: #6d7d91; }
 .value-filter-panel { position: fixed; z-index: 130; width: 290px; padding: 8px; border: 1px solid #b9c7d8; border-radius: 6px; background: #fff; box-shadow: 0 8px 22px rgba(28, 47, 73, 0.25); }
 .value-filter-search { width: 100%; height: 28px; padding: 3px 7px; border: 1px solid #cad6e4; border-radius: 4px; color: #30445f; background: #fff; }
 .value-filter-commands, .value-filter-actions { display: -webkit-box; display: flex; gap: 4px; margin-top: 6px; }
@@ -114,8 +126,8 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 
 @media (max-width: 760px) {
   .global-toolbar { position: relative; -webkit-box-lines: multiple; flex-wrap: wrap; }
-  .global-search { flex-basis: 100%; }
-  .selection-control { margin-left: 0; }
+  .global-search { width: 100%; max-width: none; flex-basis: 100%; }
+  .toolbar-commands { width: 100%; margin-left: 0; justify-content: flex-end; }
   .table-titlebar { -webkit-box-lines: multiple; flex-wrap: wrap; }
   .title-spacer { display: none; }
   .scale-control { margin-left: auto; }

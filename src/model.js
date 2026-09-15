@@ -434,7 +434,7 @@ function makeTableState(table) {
   };
 }
 
-function calculateAggregate(values, aggregate) {
+function calculateAggregates(values) {
   var count = 0;
   var sum = 0;
   var minimum = null;
@@ -451,13 +451,23 @@ function calculateAggregate(values, aggregate) {
     if (kind === null) kind = parsed.kind;
     else if (kind !== parsed.kind) mixedKinds = true;
   }
-  var value = null;
-  if (aggregate === 'count') value = count;
-  else if (aggregate === 'sum') value = sum;
-  else if (aggregate === 'average' && count) value = sum / count;
-  else if (aggregate === 'min') value = minimum;
-  else if (aggregate === 'max') value = maximum;
-  return { count: count, value: value, kind: mixedKinds ? 'number' : (kind || 'number') };
+  return {
+    count: count,
+    kind: mixedKinds ? 'number' : (kind || 'number'),
+    results: {
+      sum: sum,
+      average: count ? sum / count : null,
+      min: minimum,
+      max: maximum,
+      count: count
+    }
+  };
+}
+
+function calculateAggregate(values, aggregate) {
+  var aggregates = calculateAggregates(values);
+  var value = hasOwn(aggregates.results, aggregate) ? aggregates.results[aggregate] : null;
+  return { count: aggregates.count, value: value, kind: aggregates.kind };
 }
 
 function calculateColumnAggregate(table, visibleRows, columnIndex, aggregate) {
@@ -468,8 +478,8 @@ function calculateColumnAggregate(table, visibleRows, columnIndex, aggregate) {
   return result;
 }
 
-function calculateSelectionAggregate(table, visibleRows, selection, visibleColumns, aggregate) {
-  if (!selection) return calculateAggregate([], aggregate);
+function calculateSelectionAggregates(table, visibleRows, selection, visibleColumns) {
+  if (!selection) return calculateAggregates([]);
   var rowStart = Math.min(selection.startRow, selection.endRow);
   var rowEnd = Math.max(selection.startRow, selection.endRow);
   var columnStart = Math.min(selection.startColumn, selection.endColumn);
@@ -482,7 +492,13 @@ function calculateSelectionAggregate(table, visibleRows, selection, visibleColum
       if (type === 'number' || type === 'percent') values.push(visibleRows[rowIndex].row.columns[column]);
     }
   }
-  return calculateAggregate(values, aggregate);
+  return calculateAggregates(values);
+}
+
+function calculateSelectionAggregate(table, visibleRows, selection, visibleColumns, aggregate) {
+  var aggregates = calculateSelectionAggregates(table, visibleRows, selection, visibleColumns);
+  var value = hasOwn(aggregates.results, aggregate) ? aggregates.results[aggregate] : null;
+  return { count: aggregates.count, value: value, kind: aggregates.kind };
 }
 
 function calculateTotals(table, visibleRows) {
@@ -523,8 +539,10 @@ module.exports = {
   buildVisibleRows: buildVisibleRows,
   getAvailableValues: getAvailableValues,
   applyRowWindow: applyRowWindow,
+  calculateAggregates: calculateAggregates,
   calculateAggregate: calculateAggregate,
   calculateColumnAggregate: calculateColumnAggregate,
+  calculateSelectionAggregates: calculateSelectionAggregates,
   calculateSelectionAggregate: calculateSelectionAggregate,
   calculateTotals: calculateTotals,
   calculateSelectionSum: calculateSelectionSum,
