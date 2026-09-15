@@ -19,6 +19,67 @@ function isLinkCell(value) {
   return isObject(value) && typeof value.label === 'string' && typeof value.ref === 'string';
 }
 
+var EMPTY_REFERENCE_COLOR = '#6d7d91';
+
+function scalarValueKey(value) {
+  if (value === null) return 'null:';
+  if (typeof value === 'string') return 'string:' + value;
+  if (typeof value === 'boolean') return 'boolean:' + String(value);
+  if (typeof value === 'number' && isFinite(value)) return 'number:' + String(value === 0 ? 0 : value);
+  return null;
+}
+
+function setScalarRule(rules, value, replacement) {
+  var key = scalarValueKey(value);
+  if (key === null) return false;
+  if (replacement === null) delete rules[key];
+  else rules[key] = replacement;
+  return true;
+}
+
+function isEmptyReference(value) {
+  return isLinkCell(value) && /0{32}$/.test(value.ref);
+}
+
+function emptyReferenceText(value) {
+  if (!isEmptyReference(value)) return null;
+  var match = /^e1cib\/data\/([^?]+)\?ref=/.exec(value.ref);
+  return match && match[1] ? '<' + match[1] + ' (пустая)>' : '<пустая ссылка>';
+}
+
+function makeDisplaySettings() {
+  return {
+    negativeNumberColor: null,
+    presentations: Object.create(null),
+    colors: Object.create(null),
+    showEmptyReferences: false,
+    emptyReferenceColor: EMPTY_REFERENCE_COLOR
+  };
+}
+
+function resolveCellDisplay(value, settings) {
+  var source = settings || makeDisplaySettings();
+  if (source.showEmptyReferences && isEmptyReference(value)) {
+    return {
+      text: emptyReferenceText(value),
+      color: source.emptyReferenceColor || EMPTY_REFERENCE_COLOR,
+      isLink: false,
+      isEmptyReference: true
+    };
+  }
+
+  var text = cellText(value);
+  var color = null;
+  var key = scalarValueKey(value);
+  if (key !== null && source.presentations && hasOwn(source.presentations, key)) text = source.presentations[key];
+  if (key !== null && source.colors && hasOwn(source.colors, key)) color = source.colors[key];
+  else if (source.negativeNumberColor) {
+    var parsed = parseNumeric(value);
+    if (parsed && parsed.value < 0) color = source.negativeNumberColor;
+  }
+  return { text: text, color: color, isLink: isLinkCell(value), isEmptyReference: false };
+}
+
 function validateCell(value, path) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
@@ -673,5 +734,12 @@ module.exports = {
   matchesSearch: matchesSearch,
   findSearchHighlightRanges: findSearchHighlightRanges,
   isLinkCell: isLinkCell,
+  EMPTY_REFERENCE_COLOR: EMPTY_REFERENCE_COLOR,
+  scalarValueKey: scalarValueKey,
+  setScalarRule: setScalarRule,
+  isEmptyReference: isEmptyReference,
+  emptyReferenceText: emptyReferenceText,
+  makeDisplaySettings: makeDisplaySettings,
+  resolveCellDisplay: resolveCellDisplay,
   allNodes: allNodes
 };

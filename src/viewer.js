@@ -158,6 +158,22 @@ function appendHighlightedText(parent, text, ranges) {
   if (offset < text.length) parent.appendChild(document.createTextNode(text.slice(offset)));
 }
 
+function displayHighlightRanges(value, text, queries) {
+  var matchedQueries = [];
+  for (var index = 0; index < queries.length; index += 1) {
+    if (model.matchesSearch(value, queries[index])) matchedQueries.push(queries[index]);
+  }
+  return model.findSearchHighlightRanges(text, matchedQueries);
+}
+
+function isValidCssColor(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  var probe = document.createElement('span');
+  probe.style.color = '';
+  probe.style.color = value;
+  return probe.style.color !== '';
+}
+
 function requestFrame(callback) {
   var request = window.requestAnimationFrame || window.webkitRequestAnimationFrame;
   return request ? request.call(window, callback) : window.setTimeout(callback, 16);
@@ -290,6 +306,7 @@ function ViewerApp(root) {
   this.selectionPopup = null;
   this.selectionButton = null;
   this.customContextMenuItems = [];
+  this.displaySettings = model.makeDisplaySettings();
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
   this.onDocumentKeyDown = this.onKeyDown.bind(this);
@@ -574,6 +591,44 @@ ViewerApp.prototype.closeFilterPanel = function () {
 ViewerApp.prototype.addContextMenuItem = function (title, eventName) {
   if (typeof title !== 'string' || !title.trim() || typeof eventName !== 'string' || !eventName.trim()) return false;
   this.customContextMenuItems.push({ title: title, eventName: eventName });
+  return true;
+};
+
+ViewerApp.prototype.refreshCellDisplays = function () {
+  if (this.tablesHost && this.tablesHost.parentNode === this.root) this.refreshTables();
+};
+
+ViewerApp.prototype.setNegativeNumberColor = function (color) {
+  if (color !== null && !isValidCssColor(color)) return false;
+  this.displaySettings.negativeNumberColor = color;
+  this.refreshCellDisplays();
+  return true;
+};
+
+ViewerApp.prototype.setCellValuePresentation = function (value, presentation) {
+  if (presentation !== null && typeof presentation !== 'string') return false;
+  if (!model.setScalarRule(this.displaySettings.presentations, value, presentation)) return false;
+  this.refreshCellDisplays();
+  return true;
+};
+
+ViewerApp.prototype.setCellValueColor = function (value, color) {
+  if (color !== null && !isValidCssColor(color)) return false;
+  if (!model.setScalarRule(this.displaySettings.colors, value, color)) return false;
+  this.refreshCellDisplays();
+  return true;
+};
+
+ViewerApp.prototype.setShowEmptyReferences = function (enabled) {
+  this.displaySettings.showEmptyReferences = !!enabled;
+  this.refreshCellDisplays();
+  return true;
+};
+
+ViewerApp.prototype.setEmptyReferenceColor = function (color) {
+  if (color !== null && !isValidCssColor(color)) return false;
+  this.displaySettings.emptyReferenceColor = color === null ? model.EMPTY_REFERENCE_COLOR : color;
+  this.refreshCellDisplays();
   return true;
 };
 
@@ -1317,10 +1372,10 @@ TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
   row.className = 'grid-row data-row' + (pinned ? ' pinned-row' : ''); row.setAttribute('data-row-id', entry.id); row.setAttribute('data-visible-row', String(visibleRowIndex));
   row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; this.updateNumberCell(row.children[0], entry);
   for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
-    var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var title = model.cellText(value); var type = this.table.columnTypes[layout.modelIndex];
-    cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : ''); cell.title = title; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
-    var ranges = model.findSearchHighlightRanges(value, [this.app.globalFilter, this.state.columnFilters[layout.modelIndex]]);
-    if (model.isLinkCell(value)) { var link = element('a', 'cell-link'); link.href = '#'; appendHighlightedText(link, title, ranges); cell.appendChild(link); }
+    var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var display = model.resolveCellDisplay(value, this.app.displaySettings); var title = display.text; var type = this.table.columnTypes[layout.modelIndex];
+    cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : '') + (display.isEmptyReference ? ' empty-reference-cell' : ''); cell.title = title; cell.style.color = display.color || ''; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
+    var ranges = displayHighlightRanges(value, title, [this.app.globalFilter, this.state.columnFilters[layout.modelIndex]]);
+    if (display.isLink) { var link = element('a', 'cell-link'); link.href = '#'; appendHighlightedText(link, title, ranges); cell.appendChild(link); }
     else appendHighlightedText(cell, title, ranges);
     if (this.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
   }
@@ -1364,6 +1419,11 @@ function installPublicApi() {
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };
   window.collapseAll = function () { if (!currentApp) return false; currentApp.collapseAll(); return true; };
   window.addContextMenuItem = function (title, eventName) { return currentApp ? currentApp.addContextMenuItem(title, eventName) : false; };
+  window.setNegativeNumberColor = function (color) { return currentApp ? currentApp.setNegativeNumberColor(color) : false; };
+  window.setCellValuePresentation = function (value, presentation) { return currentApp ? currentApp.setCellValuePresentation(value, presentation) : false; };
+  window.setCellValueColor = function (value, color) { return currentApp ? currentApp.setCellValueColor(value, color) : false; };
+  window.setShowEmptyReferences = function (enabled) { return currentApp ? currentApp.setShowEmptyReferences(enabled) : false; };
+  window.setEmptyReferenceColor = function (color) { return currentApp ? currentApp.setEmptyReferenceColor(color) : false; };
   window.sendEvent = function (eventName, eventParams) { if (!currentApp) return false; currentApp.bridge.send(eventName, eventParams); return true; };
   window.fireEvent = function () { if (!currentApp) return false; currentApp.bridge.fire(); return true; };
   window.destroy = function () { if (!currentApp) return false; currentApp.destroy(); currentApp = null; return true; };

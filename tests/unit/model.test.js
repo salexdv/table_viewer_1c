@@ -42,6 +42,52 @@ describe('модель данных', function () {
     assert.isNull(model.parseNumeric('1,234.56'));
   });
 
+  it('сопоставляет правила представления по типу и позволяет их удалить', function () {
+    const settings = model.makeDisplaySettings();
+    assert.isTrue(model.setScalarRule(settings.presentations, '0', '<0>'));
+    assert.isTrue(model.setScalarRule(settings.colors, '0', '#777'));
+    assert.equal(model.resolveCellDisplay('0', settings).text, '<0>');
+    assert.equal(model.resolveCellDisplay('0', settings).color, '#777');
+    assert.equal(model.resolveCellDisplay(0, settings).text, '0');
+    assert.isNull(model.resolveCellDisplay(0, settings).color);
+    assert.isFalse(model.setScalarRule(settings.presentations, {}, 'объект'));
+    assert.isTrue(model.setScalarRule(settings.presentations, '0', null));
+    assert.equal(model.resolveCellDisplay('0', settings).text, '0');
+  });
+
+  it('применяет цвет отрицательных после точного правила значения', function () {
+    const settings = model.makeDisplaySettings();
+    settings.negativeNumberColor = 'red';
+    model.setScalarRule(settings.colors, '-1,5', 'gray');
+    assert.equal(model.resolveCellDisplay(-2, settings).color, 'red');
+    assert.equal(model.resolveCellDisplay('-10%', settings).color, 'red');
+    assert.equal(model.resolveCellDisplay('-1,5', settings).color, 'gray');
+    assert.isNull(model.resolveCellDisplay(0, settings).color);
+    assert.isNull(model.resolveCellDisplay('000394', settings).color);
+  });
+
+  it('распознаёт пустые ссылки и строит безопасное представление', function () {
+    const suffix = '00000000000000000000000000000000';
+    const canonical = { label: 'Исходная подпись', ref: 'e1cib/data/Справочник._ДемоВидыНоменклатуры?ref=' + suffix };
+    const fallback = { label: '', ref: 'custom-ref-' + suffix };
+    const regular = { label: 'Открыть', ref: 'e1cib/data/Справочник.Тест?ref=1' };
+    const settings = model.makeDisplaySettings();
+    assert.isTrue(model.isEmptyReference(canonical));
+    assert.equal(model.emptyReferenceText(canonical), '<Справочник._ДемоВидыНоменклатуры (пустая)>');
+    assert.equal(model.emptyReferenceText(fallback), '<пустая ссылка>');
+    assert.isFalse(model.isEmptyReference(regular));
+    assert.deepEqual(model.resolveCellDisplay(canonical, settings), {
+      text: 'Исходная подпись', color: null, isLink: true, isEmptyReference: false
+    });
+    settings.showEmptyReferences = true;
+    assert.deepEqual(model.resolveCellDisplay(canonical, settings), {
+      text: '<Справочник._ДемоВидыНоменклатуры (пустая)>',
+      color: model.EMPTY_REFERENCE_COLOR,
+      isLink: false,
+      isEmptyReference: true
+    });
+  });
+
   it('распознаёт только корректные даты', function () {
     assert.isNumber(model.parseDate('06.09.2026 14:18:01'));
     assert.isNumber(model.parseDate('29.02.2024'));

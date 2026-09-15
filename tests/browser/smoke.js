@@ -618,6 +618,126 @@ async function main() {
       for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent === 'Отмена') nodes[index].click();
     });
 
+    const emptyRef = '00000000000000000000000000000000';
+    await page.evaluate(function (suffix) {
+      window.init({ tables: [{ name: 'Представления', columns: ['Значение'], rows: [
+        { columns: [-2] },
+        { columns: ['-1,5'] },
+        { columns: ['-10%'] },
+        { columns: [0] },
+        { columns: ['0'] },
+        { columns: [{ label: '', ref: 'e1cib/data/Справочник._ДемоВидыНоменклатуры?ref=' + suffix }] },
+        { columns: [{ label: 'Исходная подпись', ref: 'e1cib/data/Документ.Тест?ref=' + suffix }] },
+        { columns: [{ label: '', ref: 'custom-' + suffix }] },
+        { columns: [{ label: 'Обычная ссылка', ref: 'e1cib/data/Документ.Тест?ref=1' }] }
+      ] }] });
+      window.__displayEvents = [];
+      document.getElementById('event-button').addEventListener('click', function (event) {
+        if (event.eventData1C) window.__displayEvents.push(event.eventData1C);
+      });
+    }, emptyRef);
+    assert.notStrictEqual(await page.$eval('[data-row-id="0"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(198, 40, 40)');
+    assert.deepStrictEqual(await page.evaluate(function () {
+      return [
+        window.setNegativeNumberColor('не-цвет'),
+        window.setCellValuePresentation({}, 'объект'),
+        window.setCellValuePresentation('0', 0),
+        window.setCellValueColor('0', 'не-цвет'),
+        window.setEmptyReferenceColor('')
+      ];
+    }), [false, false, false, false, false]);
+    assert.deepStrictEqual(await page.evaluate(function () {
+      return [
+        window.setNegativeNumberColor('#c62828'),
+        window.setCellValuePresentation('0', '<0>'),
+        window.setCellValueColor('-1,5', '#616161'),
+        window.setShowEmptyReferences(true)
+      ];
+    }), [true, true, true, true]);
+    assert.deepStrictEqual(await page.$$eval('.data-row .data-cell', function (nodes) {
+      return nodes.map(function (node) { var link = node.querySelector('.cell-link'); return { text: node.textContent, color: getComputedStyle(link || node).color, title: node.title, links: node.querySelectorAll('.cell-link').length }; });
+    }), [
+      { text: '-2', color: 'rgb(198, 40, 40)', title: '-2', links: 0 },
+      { text: '-1,5', color: 'rgb(97, 97, 97)', title: '-1,5', links: 0 },
+      { text: '-10%', color: 'rgb(198, 40, 40)', title: '-10%', links: 0 },
+      { text: '0', color: 'rgb(49, 65, 87)', title: '0', links: 0 },
+      { text: '<0>', color: 'rgb(49, 65, 87)', title: '<0>', links: 0 },
+      { text: '<Справочник._ДемоВидыНоменклатуры (пустая)>', color: 'rgb(109, 125, 145)', title: '<Справочник._ДемоВидыНоменклатуры (пустая)>', links: 0 },
+      { text: '<Документ.Тест (пустая)>', color: 'rgb(109, 125, 145)', title: '<Документ.Тест (пустая)>', links: 0 },
+      { text: '<пустая ссылка>', color: 'rgb(109, 125, 145)', title: '<пустая ссылка>', links: 0 },
+      { text: 'Обычная ссылка', color: 'rgb(47, 126, 232)', title: 'Обычная ссылка', links: 1 }
+    ]);
+    assert.strictEqual(await page.evaluate(function () { return window.setCellValuePresentation('0', '<img src=x onerror=alert(1)>'); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="4"] .data-cell', function (node) { return node.textContent; }), '<img src=x onerror=alert(1)>');
+    assert.strictEqual(await page.$$eval('.data-cell img', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.evaluate(function () { return window.setCellValuePresentation('0', null); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="4"] .data-cell', function (node) { return node.textContent; }), '0');
+    assert.strictEqual(await page.evaluate(function () { return window.setCellValuePresentation('0', '<0>'); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.setCellValueColor('-1,5', null); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="1"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(198, 40, 40)');
+    assert.strictEqual(await page.evaluate(function () { return window.setCellValueColor('-1,5', '#616161'); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.setNegativeNumberColor(null); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="0"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(49, 65, 87)');
+    assert.strictEqual(await page.$eval('[data-row-id="1"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(97, 97, 97)');
+    assert.strictEqual(await page.evaluate(function () { return window.setNegativeNumberColor('#c62828'); }), true);
+    await page.click('[data-row-id="1"] .data-cell');
+    assert.strictEqual(await page.$eval('[data-row-id="1"] .data-cell.selected-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(97, 97, 97)');
+    await page.click('[data-row-id="5"] .data-cell');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__displayEvents; }), []);
+    await page.click('[data-row-id="8"] .cell-link');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__displayEvents; }), [
+      { event: 'EVENT_ON_LINK_CLICK', params: { label: 'Обычная ссылка', href: 'e1cib/data/Документ.Тест?ref=1' } }
+    ]);
+    assert.strictEqual(await page.evaluate(function () { return window.setEmptyReferenceColor('#78909c'); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="5"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(120, 144, 156)');
+    assert.strictEqual(await page.evaluate(function () { return window.setEmptyReferenceColor(null); }), true);
+    assert.strictEqual(await page.$eval('[data-row-id="5"] .data-cell', function (node) { return getComputedStyle(node).color; }), 'rgb(109, 125, 145)');
+    assert.strictEqual(await page.evaluate(function () { return window.setShowEmptyReferences(false); }), true);
+    assert.deepStrictEqual(await page.$eval('[data-row-id="6"] .data-cell', function (node) { return { text: node.textContent, links: node.querySelectorAll('.cell-link').length }; }), { text: 'Исходная подпись', links: 1 });
+    assert.strictEqual(await page.evaluate(function () { return window.setShowEmptyReferences(true); }), true);
+
+    await page.$eval('.global-search', function (input) { input.value = '0'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+    assert.deepStrictEqual(await page.$$eval('[data-row-id="4"] .search-highlight', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), ['0']);
+    await page.click('.global-search-control .search-clear-button');
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+
+    assert.strictEqual(await page.evaluate(function (suffix) {
+      var rows = [];
+      for (var index = 0; index < 200; index += 1) rows.push({ columns: ['Строка ' + index] });
+      rows[0] = { columns: ['0'] };
+      rows[198] = { columns: [{ label: 'Не показывать', ref: 'e1cib/data/Справочник.Тест?ref=' + suffix }] };
+      rows[199] = { columns: [-3] };
+      return window.setData({ tables: [{ name: 'Сохранение настроек', columns: ['Значение'], rows: rows }] });
+    }, emptyRef), true);
+    assert.strictEqual(await page.$eval('[data-row-id="0"] .data-cell', function (node) { return node.textContent; }), '<0>');
+    await page.click('[data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Зафиксировать строку');
+    assert.strictEqual(await page.$eval('[data-row-id="0"].pinned-row .data-cell', function (node) { return node.textContent; }), '<0>');
+    await page.$eval('.grid-viewport', function (node) { node.scrollTop = node.scrollHeight; });
+    await new Promise(function (resolve) { setTimeout(resolve, 60); });
+    assert.deepStrictEqual(await page.$eval('[data-row-id="198"] .data-cell', function (node) { return { text: node.textContent, color: getComputedStyle(node).color, links: node.querySelectorAll('.cell-link').length }; }), {
+      text: '<Справочник.Тест (пустая)>', color: 'rgb(109, 125, 145)', links: 0
+    });
+    assert.deepStrictEqual(await page.$eval('[data-row-id="199"] .data-cell', function (node) { return { text: node.textContent, color: getComputedStyle(node).color }; }), {
+      text: '-3', color: 'rgb(198, 40, 40)'
+    });
+    assert.strictEqual(await page.evaluate(function (suffix) {
+      return window.init({ tables: [{ name: 'Сброс настроек', columns: ['Значение'], rows: [
+        { columns: ['0'] }, { columns: [-3] },
+        { columns: [{ label: 'После init', ref: 'e1cib/data/Справочник.Тест?ref=' + suffix }] }
+      ] }] });
+    }, emptyRef), true);
+    assert.deepStrictEqual(await page.$$eval('.data-row .data-cell', function (nodes) {
+      return nodes.map(function (node) { var link = node.querySelector('.cell-link'); return { text: node.textContent, color: getComputedStyle(link || node).color, links: node.querySelectorAll('.cell-link').length }; });
+    }), [
+      { text: '0', color: 'rgb(49, 65, 87)', links: 0 },
+      { text: '-3', color: 'rgb(49, 65, 87)', links: 0 },
+      { text: 'После init', color: 'rgb(47, 126, 232)', links: 1 }
+    ]);
+
     await page.evaluate(function () {
       window.__events = [];
       document.getElementById('event-button').addEventListener('click', function (event) { window.__events.push(event.eventData1C); });
@@ -746,6 +866,15 @@ async function main() {
     }), true);
     assert.strictEqual(await page.evaluate(function () { return window.destroy(); }), true);
     assert.strictEqual(await page.evaluate(function () { return window.addContextMenuItem('После destroy', 'EVENT_AFTER_DESTROY'); }), false);
+    assert.deepStrictEqual(await page.evaluate(function () {
+      return [
+        window.setNegativeNumberColor('red'),
+        window.setCellValuePresentation('0', '<0>'),
+        window.setCellValueColor('0', 'gray'),
+        window.setShowEmptyReferences(true),
+        window.setEmptyReferenceColor('gray')
+      ];
+    }), [false, false, false, false, false]);
     assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
 
     assert.deepStrictEqual(errors, []);
