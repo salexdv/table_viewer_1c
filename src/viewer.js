@@ -52,6 +52,17 @@ function addButton(parent, text, title, onClick, className) {
   return button;
 }
 
+function bindSearchInput(input, onChange) {
+  var previousValue = input.value;
+  function handleChange() {
+    if (input.value === previousValue) return;
+    previousValue = input.value;
+    onChange();
+  }
+  input.addEventListener('input', handleChange);
+  input.addEventListener('search', handleChange);
+}
+
 function requestFrame(callback) {
   var request = window.requestAnimationFrame || window.webkitRequestAnimationFrame;
   return request ? request.call(window, callback) : window.setTimeout(callback, 16);
@@ -244,7 +255,7 @@ ViewerApp.prototype.render = function () {
   search.placeholder = 'Поиск по всем таблицам…';
   search.setAttribute('aria-label', 'Глобальный поиск');
   search.value = this.globalFilter;
-  search.addEventListener('input', function () {
+  bindSearchInput(search, function () {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
     self.globalSearchTimer = setTimeout(function () {
       self.globalFilter = search.value;
@@ -493,7 +504,7 @@ ViewerApp.prototype.openValueFilter = function (view, columnIndex, anchor) {
     view.state.valueFilters[columnIndex] = null; view.state.rowWindow = null;
     self.clearSelection(); self.closeFilterPanel(); view.refreshData(); view.updateFilterButtons();
   }, 'button button-small');
-  search.addEventListener('input', filterValues);
+  bindSearchInput(search, filterValues);
   list.addEventListener('scroll', renderList);
   panel.addEventListener('click', function (event) { event.stopPropagation(); });
   document.body.appendChild(panel); this.filterPanel = panel;
@@ -796,7 +807,7 @@ TableView.prototype.renderGrid = function () {
       var cell = element('div', 'grid-cell filter-cell'); self.styleCell(cell, layout, true);
       var control = element('div', 'filter-control');
       var input = element('input', 'column-filter'); input.type = 'search'; input.placeholder = 'Фильтр…'; input.value = self.state.columnFilters[layout.modelIndex]; input.setAttribute('aria-label', 'Фильтр по колонке ' + self.table.columns[layout.modelIndex]);
-      input.addEventListener('input', function () { self.state.columnFilters[layout.modelIndex] = input.value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
+      bindSearchInput(input, function () { self.state.columnFilters[layout.modelIndex] = input.value; delete self.state.exactFilters[layout.modelIndex]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); });
       var valuesButton = element('button', 'value-filter-button', '▾'); valuesButton.type = 'button'; valuesButton.title = 'Выбрать значения колонки'; valuesButton.setAttribute('aria-label', valuesButton.title);
       valuesButton.addEventListener('click', function (event) { event.stopPropagation(); self.app.openValueFilter(self, layout.modelIndex, valuesButton); });
       self.filterButtons[layout.modelIndex] = valuesButton;

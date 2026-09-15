@@ -246,8 +246,10 @@ async function main() {
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"]', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.notStrictEqual(await page.$eval('.table-card[data-table-index="1"]', function (node) { return getComputedStyle(node).display; }), 'none');
-    await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true })); });
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
+    assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"]', function (node) { return getComputedStyle(node).display; }), 'none');
+    assert.notStrictEqual(await page.$eval('.table-card[data-table-index="1"]', function (node) { return getComputedStyle(node).display; }), 'none');
 
     await page.$eval('.global-search', function (input) { input.value = 'Строка'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await new Promise(function (resolve) { setTimeout(resolve, 190); });
@@ -284,6 +286,10 @@ async function main() {
     await page.$$eval('.value-filter-commands .button', function (nodes) {
       for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent === 'Снять все') nodes[index].click();
     });
+    await page.$eval('.value-filter-search', function (input) { input.value = 'Строка 9999'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.strictEqual(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }), 1);
+    await page.$eval('.value-filter-search', function (input) { input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true })); });
+    assert.ok(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }) > 1, 'Очистка поиска значений должна восстановить список');
     await page.$eval('.value-filter-search', function (input) { input.value = 'Строка 9999'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.click('.value-filter-option input');
     await page.$$eval('.value-filter-actions .button', function (nodes) {
@@ -356,8 +362,9 @@ async function main() {
 
     await page.evaluate(function () {
       var input = document.querySelector('.table-card[data-table-index="1"] .column-filter');
-      input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.value = ''; input.dispatchEvent(new Event('search', { bubbles: true }));
     });
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 4') !== -1);
     const firstDataCell = '.table-card[data-table-index="1"] .data-row .data-cell';
     await page.click(firstDataCell, { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .menu-item', function (nodes) { return nodes.length; }), 3);
