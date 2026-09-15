@@ -20,6 +20,27 @@ function clear(node) {
   while (node && node.firstChild) node.removeChild(node.firstChild);
 }
 
+function findClassTarget(target, className, root) {
+  var node = target;
+  while (node && node !== root) {
+    var classes = node.getAttribute ? node.getAttribute('class') : '';
+    if ((' ' + classes + ' ').indexOf(' ' + className + ' ') !== -1) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+function setClass(node, className, enabled) {
+  var classes = String(node.className || '').split(/\s+/); var result = []; var found = false;
+  for (var index = 0; index < classes.length; index += 1) {
+    if (!classes[index]) continue;
+    if (classes[index] === className) { found = true; if (!enabled) continue; }
+    result.push(classes[index]);
+  }
+  if (enabled && !found) result.push(className);
+  node.className = result.join(' ');
+}
+
 function addButton(parent, text, title, onClick, className) {
   var button = element('button', className || 'button', text);
   button.type = 'button';
@@ -525,17 +546,18 @@ ViewerApp.prototype.beginSelection = function (view, rowIndex, columnIndex, shif
     this.clearSelection();
     view.state.selection = { startRow: rowIndex, endRow: rowIndex, startColumn: columnIndex, endColumn: columnIndex };
   }
-  this.draggingView = view; view.renderRows(); this.updateSelection(view);
+  this.draggingView = view; view.updateRenderedSelection(); this.updateSelection(view);
 };
 
 ViewerApp.prototype.extendSelection = function (view, rowIndex, columnIndex) {
   if (this.draggingView !== view || !view.state.selection) return;
   view.state.selection.endRow = rowIndex; view.state.selection.endColumn = columnIndex;
-  view.renderRows(); this.updateSelection(view);
+  view.updateRenderedSelection(); this.updateSelection(view);
 };
 ViewerApp.prototype.stopSelection = function () { this.draggingView = null; };
 ViewerApp.prototype.clearSelection = function () {
   for (var index = 0; index < this.states.length; index += 1) this.states[index].selection = null;
+  for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateRenderedSelection();
   this.draggingView = null;
   this.selectionView = null;
   if (this.selectionSummary) this.selectionSummary.textContent = 'Числа не выделены';
@@ -579,6 +601,7 @@ ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
 ViewerApp.prototype.destroy = function () {
   if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
   if (this.layoutFrame) cancelFrame(this.layoutFrame);
+  for (var index = 0; index < this.tableViews.length; index += 1) this.tableViews[index].cancelScheduledRender();
   document.removeEventListener('mouseup', this.onDocumentMouseUp);
   document.removeEventListener('click', this.onDocumentMouseDown);
   window.removeEventListener('resize', this.onWindowResize);
@@ -589,7 +612,7 @@ function TableView(app, table, state, tableIndex) {
   this.app = app; this.table = table; this.state = state; this.tableIndex = tableIndex;
   this.allVisibleRows = []; this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
   this.hiddenBefore = 0; this.hiddenAfter = 0; this.filterButtons = {};
-  this.rowHeight = 26; this.scrollTimer = null; this.card = this.createCard();
+  this.rowHeight = 26; this.scrollFrame = null; this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1; this.card = this.createCard();
 }
 
 TableView.prototype.createCard = function () {
@@ -641,24 +664,85 @@ TableView.prototype.styleCell = function (cell, layout, header) {
   if (layout.pinned) { cell.className += ' pinned-column'; cell.style.position = '-webkit-sticky'; cell.style.position = 'sticky'; cell.style.left = layout.left + 'px'; if (header) cell.style.zIndex = '8'; }
 };
 
-TableView.prototype.numberCell = function (entry) {
-  var self = this; var cell = element('div', 'grid-cell number-cell'); cell.setAttribute('role', 'gridcell');
+TableView.prototype.createNumberCell = function () {
+  var cell = element('div', 'grid-cell number-cell'); cell.setAttribute('role', 'gridcell');
   cell.style.width = this.layout.numberWidth + 'px'; cell.style.minWidth = this.layout.numberWidth + 'px'; cell.style.maxWidth = this.layout.numberWidth + 'px'; cell.style.position = '-webkit-sticky'; cell.style.position = 'sticky'; cell.style.left = '0'; cell.style.zIndex = '5';
+  return cell;
+};
+
+TableView.prototype.updateNumberCell = function (cell, entry) {
+  clear(cell);
   cell.style.paddingLeft = Math.min(4 + entry.depth * 12, Math.max(4, this.layout.numberWidth - 50)) + 'px';
   if (entry.hasChildren) {
-    var toggle = addButton(cell, entry.expanded ? '−' : '+', entry.expanded ? 'Свернуть строку' : 'Развернуть строку', function (event) { event.stopPropagation(); if (entry.expanded) self.state.collapsedRows[entry.id] = true; else delete self.state.collapsedRows[entry.id]; self.state.rowWindow = null; self.app.clearSelection(); self.refreshData(); }, 'tree-toggle');
+    var toggle = element('button', 'tree-toggle', entry.expanded ? '−' : '+'); toggle.type = 'button'; toggle.title = entry.expanded ? 'Свернуть строку' : 'Развернуть строку';
     toggle.setAttribute('aria-expanded', entry.expanded ? 'true' : 'false');
+    cell.appendChild(toggle);
   } else cell.appendChild(element('span', 'tree-spacer', ''));
   cell.appendChild(element('span', 'row-number', entry.number));
-  cell.addEventListener('contextmenu', function (event) { event.preventDefault(); self.app.openMenu(self, entry, -1, event.clientX, event.clientY); });
-  return cell;
+};
+
+TableView.prototype.entryForRow = function (row) {
+  if (!row) return null;
+  var index = Number(row.getAttribute('data-visible-row'));
+  return isFinite(index) ? this.visibleRows[index] : null;
+};
+
+TableView.prototype.onGridClick = function (event) {
+  var toggle = findClassTarget(event.target, 'tree-toggle', this.content);
+  if (toggle) {
+    var toggleRow = findClassTarget(toggle, 'data-row', this.content); var toggleEntry = this.entryForRow(toggleRow);
+    if (!toggleEntry) return;
+    event.preventDefault(); event.stopPropagation();
+    if (toggleEntry.expanded) this.state.collapsedRows[toggleEntry.id] = true;
+    else delete this.state.collapsedRows[toggleEntry.id];
+    this.state.rowWindow = null; this.app.clearSelection(); this.refreshData(); return;
+  }
+  var link = findClassTarget(event.target, 'cell-link', this.content);
+  if (!link) return;
+  var cell = findClassTarget(link, 'data-cell', this.content); var row = findClassTarget(cell, 'data-row', this.content); var entry = this.entryForRow(row);
+  if (!entry) return;
+  var value = entry.row.columns[Number(cell.getAttribute('data-column'))];
+  if (!model.isLinkCell(value)) return;
+  event.preventDefault(); event.stopPropagation(); this.app.bridge.send('EVENT_ON_LINK_CLICK', { label: value.label, href: value.ref });
+};
+
+TableView.prototype.onGridMouseDown = function (event) {
+  var cell = findClassTarget(event.target, 'data-cell', this.content);
+  if (!cell || event.button !== 0 || findClassTarget(event.target, 'cell-link', cell)) return;
+  var row = findClassTarget(cell, 'data-row', this.content); var entry = this.entryForRow(row);
+  if (!entry) return;
+  event.preventDefault();
+  this.app.beginSelection(this, Number(row.getAttribute('data-visible-row')), Number(cell.getAttribute('data-visible-column')), event.shiftKey);
+};
+
+TableView.prototype.onGridMouseOver = function (event) {
+  var cell = findClassTarget(event.target, 'data-cell', this.content);
+  if (!cell || (event.relatedTarget && cell.contains(event.relatedTarget))) return;
+  var row = findClassTarget(cell, 'data-row', this.content);
+  if (!this.entryForRow(row)) return;
+  this.app.extendSelection(this, Number(row.getAttribute('data-visible-row')), Number(cell.getAttribute('data-visible-column')));
+};
+
+TableView.prototype.onGridContextMenu = function (event) {
+  var cell = findClassTarget(event.target, 'data-cell', this.content);
+  var number = cell ? null : findClassTarget(event.target, 'number-cell', this.content);
+  var target = cell || number;
+  if (!target) return;
+  var row = findClassTarget(target, 'data-row', this.content); var entry = this.entryForRow(row);
+  if (!entry) return;
+  event.preventDefault(); this.app.openMenu(this, entry, cell ? Number(cell.getAttribute('data-column')) : -1, event.clientX, event.clientY);
 };
 
 TableView.prototype.renderGrid = function () {
   var self = this; var oldTop = this.viewport ? this.viewport.scrollTop : 0; var oldLeft = this.viewport ? this.viewport.scrollLeft : 0;
+  this.cancelScheduledRender();
   clear(this.gridHost); this.filterButtons = {}; this.layout = this.getColumnLayout(); this.rowHeight = Math.max(20, Math.round(26 * this.state.scale / 100));
   this.viewport = element('div', 'grid-viewport'); this.viewport.setAttribute('role', 'grid'); this.viewport.setAttribute('aria-label', this.table.name);
   this.content = element('div', 'grid-content'); this.content.style.width = this.layout.totalWidth + 'px'; this.content.style.minWidth = '100%'; this.viewport.appendChild(this.content); this.gridHost.appendChild(this.viewport);
+  this.content.addEventListener('click', function (event) { self.onGridClick(event); });
+  this.content.addEventListener('mousedown', function (event) { self.onGridMouseDown(event); });
+  this.content.addEventListener('mouseover', function (event) { self.onGridMouseOver(event); });
+  this.content.addEventListener('contextmenu', function (event) { self.onGridContextMenu(event); });
   this.header = element('div', 'grid-row header-row'); this.header.setAttribute('role', 'row'); this.header.style.height = this.rowHeight + 'px';
   var numberHeader = element('div', 'grid-cell header-cell number-cell', '№'); numberHeader.setAttribute('role', 'columnheader'); numberHeader.style.width = this.layout.numberWidth + 'px'; numberHeader.style.minWidth = this.layout.numberWidth + 'px'; numberHeader.style.maxWidth = this.layout.numberWidth + 'px'; numberHeader.style.position = '-webkit-sticky'; numberHeader.style.position = 'sticky'; numberHeader.style.left = '0'; numberHeader.style.zIndex = '9';
   var numberResizer = element('span', 'column-resizer number-resizer'); numberResizer.title = 'Изменить ширину колонки номеров'; numberResizer.addEventListener('mousedown', function (event) { self.beginNumberResize(event); }); numberHeader.appendChild(numberResizer); this.header.appendChild(numberHeader);
@@ -695,11 +779,19 @@ TableView.prototype.renderGrid = function () {
   }
   this.content.appendChild(this.filterRow); this.pinnedHost = element('div', 'pinned-rows'); this.content.appendChild(this.pinnedHost);
   this.beforeMarker = element('button', 'range-marker range-marker-before'); this.beforeMarker.type = 'button'; this.beforeMarker.addEventListener('click', function () { self.restoreHiddenRows(true); }); this.content.appendChild(this.beforeMarker);
-  this.body = element('div', 'virtual-body'); this.content.appendChild(this.body);
+  this.body = element('div', 'virtual-body'); this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1; this.content.appendChild(this.body);
   this.afterMarker = element('button', 'range-marker range-marker-after'); this.afterMarker.type = 'button'; this.afterMarker.addEventListener('click', function () { self.restoreHiddenRows(false); }); this.content.appendChild(this.afterMarker);
   this.footer = element('div', 'grid-row totals-row'); this.footer.setAttribute('role', 'row'); this.content.appendChild(this.footer);
-  this.viewport.addEventListener('scroll', function () { if (self.scrollTimer) return; self.scrollTimer = setTimeout(function () { self.scrollTimer = null; self.renderVirtualRows(); }, 0); });
+  this.viewport.addEventListener('scroll', function () {
+    if (self.scrollFrame !== null) return;
+    self.scrollFrame = requestFrame(function () { self.scrollFrame = null; self.renderVirtualRows(); });
+  });
   this.refreshData(); this.updateFilterButtons(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft; this.renderVirtualRows();
+};
+
+TableView.prototype.cancelScheduledRender = function () {
+  if (this.scrollFrame === null) return;
+  cancelFrame(this.scrollFrame); this.scrollFrame = null;
 };
 
 TableView.prototype.toggleSort = function (column) {
@@ -737,7 +829,11 @@ TableView.prototype.applyWidths = function () {
   if (!this.viewport || !this.content) return;
   this.layout = this.getColumnLayout(this.viewport.clientWidth || 0); this.content.style.width = this.layout.totalWidth + 'px';
   var numberCells = this.content.querySelectorAll('.number-cell');
-  for (var numberIndex = 0; numberIndex < numberCells.length; numberIndex += 1) { numberCells[numberIndex].style.width = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.minWidth = this.layout.numberWidth + 'px'; numberCells[numberIndex].style.maxWidth = this.layout.numberWidth + 'px'; }
+  for (var numberIndex = 0; numberIndex < numberCells.length; numberIndex += 1) {
+    var numberCell = numberCells[numberIndex]; numberCell.style.width = this.layout.numberWidth + 'px'; numberCell.style.minWidth = this.layout.numberWidth + 'px'; numberCell.style.maxWidth = this.layout.numberWidth + 'px';
+    var numberRow = findClassTarget(numberCell, 'data-row', this.content); var numberEntry = this.entryForRow(numberRow);
+    if (numberEntry) numberCell.style.paddingLeft = Math.min(4 + numberEntry.depth * 12, Math.max(4, this.layout.numberWidth - 50)) + 'px';
+  }
   var rows = this.content.querySelectorAll('.data-row');
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) rows[rowIndex].style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
   for (var index = 0; index < this.layout.columns.length; index += 1) {
@@ -776,7 +872,7 @@ TableView.prototype.refreshData = function () {
   }
   this.bodyEntries = [];
   for (var rowIndex = 0; rowIndex < this.visibleRows.length; rowIndex += 1) if (!pinnedMap[this.visibleRows[rowIndex].id]) this.bodyEntries.push({ entry: this.visibleRows[rowIndex], visibleIndex: rowIndex });
-  this.pinnedEntries = pinned; this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
+  this.pinnedEntries = pinned; this.resetVirtualRows(); this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
   this.applyHeight(false);
   this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
   this.app.scheduleTableLayouts();
@@ -801,29 +897,85 @@ TableView.prototype.restoreHiddenRows = function (before) {
   this.app.clearSelection(); this.refreshData();
 };
 
+TableView.prototype.resetVirtualRows = function () {
+  if (this.body) clear(this.body);
+  this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1;
+};
+
 TableView.prototype.renderVirtualRows = function () {
   if (!this.body || this.state.collapsed) return;
-  var fixed = (2 + this.pinnedEntries.length + (this.hiddenBefore ? 1 : 0)) * this.rowHeight; var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8; var start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan); var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2; var end = Math.min(this.bodyEntries.length, start + count); clear(this.body);
-  if (!this.bodyEntries.length) { var emptyRow = element('div', 'grid-empty-row', 'Нет строк, соответствующих фильтру.'); emptyRow.style.height = this.rowHeight + 'px'; this.body.appendChild(emptyRow); return; }
-  for (var index = start; index < end; index += 1) { var data = this.bodyEntries[index]; var row = this.renderRow(data.entry, data.visibleIndex, false); row.style.position = 'absolute'; row.style.top = index * this.rowHeight + 'px'; this.body.appendChild(row); }
-};
-TableView.prototype.renderRows = function () { this.renderPinnedRows(); this.renderVirtualRows(); };
+  if (!this.bodyEntries.length) {
+    if (this.virtualStart === 0 && this.virtualEnd === 0) return;
+    this.resetVirtualRows(); var emptyRow = element('div', 'grid-empty-row', 'Нет строк, соответствующих фильтру.'); emptyRow.style.height = this.rowHeight + 'px'; this.body.appendChild(emptyRow); this.virtualStart = 0; this.virtualEnd = 0; return;
+  }
+  var fixed = (2 + this.pinnedEntries.length + (this.hiddenBefore ? 1 : 0)) * this.rowHeight;
+  var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8;
+  var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2;
+  var targetCount = Math.min(this.bodyEntries.length, count);
+  var start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan);
+  start = Math.min(start, this.bodyEntries.length - targetCount); var end = start + targetCount;
+  if (start === this.virtualStart && end === this.virtualEnd) return;
 
-TableView.prototype.renderRow = function (entry, visibleRowIndex, pinned) {
-  var self = this; var row = element('div', 'grid-row data-row' + (pinned ? ' pinned-row' : '')); row.setAttribute('role', 'row'); row.setAttribute('data-row-id', entry.id); row.setAttribute('data-visible-row', String(visibleRowIndex)); row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; row.appendChild(this.numberCell(entry));
-  for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
-    (function (layout) {
-      var value = entry.row.columns[layout.modelIndex]; var cell = element('div', 'grid-cell data-cell'); cell.setAttribute('role', 'gridcell'); cell.setAttribute('data-visible-column', String(layout.visibleIndex)); self.styleCell(cell, layout, false); var title = model.cellText(value); cell.title = title;
-      if (model.isLinkCell(value)) { var link = element('a', 'cell-link', value.label); link.href = '#'; link.addEventListener('click', function (event) { event.preventDefault(); event.stopPropagation(); self.app.bridge.send('EVENT_ON_LINK_CLICK', { label: value.label, href: value.ref }); }); cell.appendChild(link); } else cell.textContent = title;
-      if (self.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
-      cell.addEventListener('mousedown', function (event) { if (event.button !== 0 || event.target.tagName.toLowerCase() === 'a') return; event.preventDefault(); self.app.beginSelection(self, visibleRowIndex, layout.visibleIndex, event.shiftKey); });
-      cell.addEventListener('mouseenter', function () { self.app.extendSelection(self, visibleRowIndex, layout.visibleIndex); });
-      cell.addEventListener('contextmenu', function (event) { event.preventDefault(); self.app.openMenu(self, entry, layout.modelIndex, event.clientX, event.clientY); }); row.appendChild(cell);
-    })(this.layout.columns[layoutIndex]);
+  var target = {}; var kept = {}; var free = []; var index;
+  for (index = start; index < end; index += 1) target[index] = true;
+  for (index = 0; index < this.virtualRows.length; index += 1) {
+    var oldItem = this.virtualRows[index];
+    if (target[oldItem.index]) kept[oldItem.index] = oldItem;
+    else { if (oldItem.node.parentNode === this.body) this.body.removeChild(oldItem.node); free.push(oldItem); }
+  }
+
+  var nextRows = [];
+  for (index = start; index < end; index += 1) {
+    var item = kept[index];
+    if (!item) {
+      item = free.length ? free.pop() : { node: this.createRow(false), index: -1 };
+      var data = this.bodyEntries[index]; item.index = index; this.updateRow(item.node, data.entry, data.visibleIndex, false);
+      item.node.style.position = 'absolute'; item.node.style.top = index * this.rowHeight + 'px';
+      var reference = null;
+      for (var nextIndex = index + 1; nextIndex < end; nextIndex += 1) {
+        if (kept[nextIndex]) { reference = kept[nextIndex].node; break; }
+      }
+      this.body.insertBefore(item.node, reference);
+    }
+    nextRows.push(item);
+  }
+  this.virtualRows = nextRows; this.virtualStart = start; this.virtualEnd = end;
+};
+
+TableView.prototype.createRow = function (pinned) {
+  var row = element('div', 'grid-row data-row' + (pinned ? ' pinned-row' : '')); row.setAttribute('role', 'row');
+  row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; row.appendChild(this.createNumberCell());
+  for (var index = 0; index < this.layout.columns.length; index += 1) {
+    var layout = this.layout.columns[index]; var cell = element('div', 'grid-cell data-cell'); cell.setAttribute('role', 'gridcell'); cell.setAttribute('data-visible-column', String(layout.visibleIndex)); this.styleCell(cell, layout, false); row.appendChild(cell);
   }
   return row;
 };
+
+TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
+  row.className = 'grid-row data-row' + (pinned ? ' pinned-row' : ''); row.setAttribute('data-row-id', entry.id); row.setAttribute('data-visible-row', String(visibleRowIndex));
+  row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; this.updateNumberCell(row.children[0], entry);
+  for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
+    var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var title = model.cellText(value);
+    cell.className = 'grid-cell data-cell' + (layout.pinned ? ' pinned-column' : ''); cell.title = title; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
+    if (model.isLinkCell(value)) { var link = element('a', 'cell-link', value.label); link.href = '#'; cell.appendChild(link); }
+    else cell.textContent = title;
+    if (this.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
+  }
+};
+
+TableView.prototype.renderRow = function (entry, visibleRowIndex, pinned) {
+  var row = this.createRow(pinned); this.updateRow(row, entry, visibleRowIndex, pinned); return row;
+};
 TableView.prototype.isSelected = function (rowIndex, columnIndex) { var selection = this.state.selection; if (!selection) return false; return rowIndex >= Math.min(selection.startRow, selection.endRow) && rowIndex <= Math.max(selection.startRow, selection.endRow) && columnIndex >= Math.min(selection.startColumn, selection.endColumn) && columnIndex <= Math.max(selection.startColumn, selection.endColumn); };
+
+TableView.prototype.updateRenderedSelection = function () {
+  if (!this.content) return;
+  var cells = this.content.querySelectorAll('.data-row .data-cell');
+  for (var index = 0; index < cells.length; index += 1) {
+    var row = findClassTarget(cells[index], 'data-row', this.content);
+    setClass(cells[index], 'selected-cell', this.isSelected(Number(row.getAttribute('data-visible-row')), Number(cells[index].getAttribute('data-visible-column'))));
+  }
+};
 
 TableView.prototype.renderFooter = function () {
   clear(this.footer); var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);

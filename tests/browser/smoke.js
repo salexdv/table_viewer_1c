@@ -99,9 +99,46 @@ async function main() {
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="0"] .aggregate-button', function (nodes) { return nodes.length; }), 2);
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="1"] .aggregate-button', function (nodes) { return nodes.length; }), 1);
     assert.ok(await page.$$eval('.data-row', function (nodes) { return nodes.length; }) < 100, 'DOM-строк должно быть меньше 100');
+    await page.evaluate(function () {
+      var body = document.querySelector('.table-card[data-table-index="0"] .virtual-body');
+      window.__virtualPool = Array.prototype.slice.call(body.children);
+      window.__virtualMutations = { added: 0, removed: 0 };
+      window.__virtualObserver = new MutationObserver(function (records) {
+        for (var index = 0; index < records.length; index += 1) {
+          window.__virtualMutations.added += records[index].addedNodes.length;
+          window.__virtualMutations.removed += records[index].removedNodes.length;
+        }
+      });
+      window.__virtualObserver.observe(body, { childList: true });
+    });
+    await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollLeft = 10; node.dispatchEvent(new Event('scroll')); });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.ok(await page.evaluate(function () {
+      var current = document.querySelector('.table-card[data-table-index="0"] .virtual-body').children;
+      if (current.length !== window.__virtualPool.length) return false;
+      for (var index = 0; index < current.length; index += 1) if (current[index] !== window.__virtualPool[index]) return false;
+      return window.__virtualMutations.added === 0 && window.__virtualMutations.removed === 0;
+    }), 'Горизонтальная прокрутка не должна менять виртуальные строки');
+    await page.evaluate(function () { window.__virtualMutations.added = 0; window.__virtualMutations.removed = 0; });
+    await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollTop = 10; });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__virtualMutations; }), { added: 0, removed: 0 });
+    await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollTop = 286; });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.ok(await page.evaluate(function () {
+      var current = document.querySelector('.table-card[data-table-index="0"] .virtual-body').children;
+      if (current.length !== window.__virtualPool.length || window.__virtualMutations.added > 1 || window.__virtualMutations.removed > 1) return false;
+      for (var index = 0; index < current.length; index += 1) if (window.__virtualPool.indexOf(current[index]) === -1) return false;
+      return true;
+    }), 'Вертикальная прокрутка должна переиспользовать пул и обновлять только вошедшую строку');
     await page.$eval('.table-card[data-table-index="0"] .grid-viewport', function (node) { node.scrollTop = node.scrollHeight; });
     await new Promise(function (resolve) { setTimeout(resolve, 30); });
     assert.ok(await page.$('.table-card[data-table-index="0"] [data-row-id="9999"]'), 'После прокрутки должна быть отрисована последняя строка');
+    assert.ok(await page.evaluate(function () {
+      var current = document.querySelector('.table-card[data-table-index="0"] .virtual-body').children;
+      for (var index = 0; index < current.length; index += 1) if (window.__virtualPool.indexOf(current[index]) === -1) return false;
+      window.__virtualObserver.disconnect(); return true;
+    }), 'Быстрый переход должен обновлять существующий пул строк');
     assert.ok(await page.$$eval('.data-row', function (nodes) { return nodes.length; }) < 100, 'После прокрутки DOM остаётся ограниченным');
 
     await page.$eval('.global-search', function (input) { input.value = 'Искомый'; input.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -235,6 +272,7 @@ async function main() {
       document.getElementById('event-button').addEventListener('click', function (event) { window.__events.push(event.eventData1C); });
       window.setData({ tables: [{ name: 'События', columns: ['Ссылка', 'Сумма'], rows: [{ columns: [{ label: 'Открыть', ref: 'e1cib/data/Test?ref=1' }, '25'] }, { columns: ['Без ссылки', '15'] }] }] });
     });
+    assert.ok(await page.$eval('.grid-viewport', function (node) { return node.getBoundingClientRect().height; }) < 240, 'Короткая одиночная таблица не должна растягиваться');
     await page.click('.cell-link');
     await new Promise(function (resolve) { setTimeout(resolve, 30); });
     await page.$eval('.export-button', function (node) { node.click(); });
