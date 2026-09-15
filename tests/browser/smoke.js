@@ -213,9 +213,38 @@ async function main() {
     assert.strictEqual(await page.$$eval('.column-panel .column-group-title', function (nodes) { return nodes.length; }), 2);
     const optionCount = await page.$$eval('.column-option input', function (nodes) { return nodes.length; });
     assert.strictEqual(optionCount, 5);
-    await page.click('.column-option input');
+    const firstToggle = await page.evaluate(function () {
+      var oldCheckbox = document.querySelectorAll('.column-option input')[0];
+      oldCheckbox.click();
+      var newCheckbox = document.querySelectorAll('.column-option input')[0];
+      return { replaced: oldCheckbox !== newCheckbox, checked: newCheckbox.checked };
+    });
+    assert.deepStrictEqual(firstToggle, { replaced: true, checked: false });
     assert.strictEqual(await page.$('.table-card[data-table-index="0"] [data-column="0"]'), null);
+
+    const secondToggle = await page.evaluate(function () {
+      var oldCheckbox = document.querySelectorAll('.column-option input')[1];
+      oldCheckbox.click();
+      var checkboxes = document.querySelectorAll('.column-option input');
+      return { replaced: oldCheckbox !== checkboxes[1], firstChecked: checkboxes[0].checked, secondChecked: checkboxes[1].checked };
+    });
+    assert.deepStrictEqual(secondToggle, { replaced: true, firstChecked: false, secondChecked: false });
+    assert.strictEqual(await page.$('.table-card[data-table-index="0"] [data-column="1"]'), null);
+
     await page.click('.column-option input');
+    assert.strictEqual(await page.$eval('.column-option input', function (checkbox) { return checkbox.checked; }), true);
+    assert.ok(await page.$('.table-card[data-table-index="0"] [data-column="0"]'));
+    assert.strictEqual(await page.$('.table-card[data-table-index="0"] [data-column="1"]'), null);
+
+    await page.click('.column-panel .panel-reset');
+    assert.strictEqual(await page.$$eval('.column-option input', function (nodes) { return nodes.every(function (checkbox) { return checkbox.checked; }); }), true);
+    assert.ok(await page.$('.table-card[data-table-index="0"] [data-column="1"]'));
+
+    await page.click('.column-option input');
+    await page.click('button[title="Настроить отображение колонок"]');
+    assert.strictEqual(await page.$('.column-panel'), null);
+    await page.click('button[title="Настроить отображение колонок"]');
+    assert.strictEqual(await page.$eval('.column-option input', function (checkbox) { return checkbox.checked; }), false);
     await page.click('button[title="Настроить отображение колонок"]');
     assert.strictEqual(await page.$('.column-panel'), null);
 
