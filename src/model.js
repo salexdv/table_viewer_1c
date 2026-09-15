@@ -413,7 +413,7 @@ function makeTableState(table) {
     widths.push(initialColumnWidth(table, nodes, index));
     filters.push('');
     valueFilters.push(null);
-    columnAggregates.push('sum');
+    columnAggregates.push('none');
   }
   return {
     collapsed: false,

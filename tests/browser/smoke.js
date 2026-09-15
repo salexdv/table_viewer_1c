@@ -61,6 +61,16 @@ async function toggleColumnOption(page, optionIndex) {
   }, optionIndex);
 }
 
+async function selectColumnAggregate(page, tableIndex, columnIndex, label) {
+  await page.click('.table-card[data-table-index="' + tableIndex + '"] .header-cell[data-column="' + columnIndex + '"] .aggregate-button');
+  await page.$$eval('.aggregate-menu .menu-item', function (nodes, expectedLabel) {
+    for (var index = 0; index < nodes.length; index += 1) {
+      if (nodes[index].textContent.replace(/^\u2713\s*/, '') === expectedLabel) { nodes[index].click(); return; }
+    }
+    throw new Error('Функция итога не найдена: ' + expectedLabel);
+  }, label);
+}
+
 async function main() {
   const sourcePath = path.resolve(__dirname, '..', '..', 'dist', 'index.html');
   assert.ok(fs.existsSync(sourcePath), 'Сначала выполните npm run build');
@@ -117,6 +127,12 @@ async function main() {
     assert.strictEqual(numberHeaderStyle.align, 'left');
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="0"] .aggregate-button', function (nodes) { return nodes.length; }), 2);
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="1"] .aggregate-button', function (nodes) { return nodes.length; }), 1);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
+    assert.deepStrictEqual(await page.$$eval('.selection-aggregate option', function (nodes) { return nodes.map(function (node) { return node.value; }); }), ['sum', 'average', 'min', 'max', 'count']);
+    await page.click('.table-card[data-table-index="0"] .header-cell[data-column="2"] .aggregate-button');
+    assert.strictEqual(await page.$eval('.aggregate-menu .menu-item-active', function (node) { return node.textContent; }), '\u2713 Нет');
+    assert.deepStrictEqual(await page.$$eval('.aggregate-menu .menu-item', function (nodes) { return nodes.map(function (node) { return node.textContent.replace(/^\u2713\s*/, ''); }); }), ['Нет', 'Сумма', 'Среднее', 'Минимум', 'Максимум', 'Количество']);
+    await page.click('.aggregate-menu .menu-item-active');
     assert.ok(await page.$$eval('.data-row', function (nodes) { return nodes.length; }) < 100, 'DOM-строк должно быть меньше 100');
     await page.evaluate(function () {
       var body = document.querySelector('.table-card[data-table-index="0"] .virtual-body');
@@ -177,11 +193,25 @@ async function main() {
     await page.$eval('.global-search', function (input) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await new Promise(function (resolve) { setTimeout(resolve, 160); });
 
-    await page.click('.table-card[data-table-index="0"] .header-cell[data-column="2"] .aggregate-button');
-    await page.$$eval('.aggregate-menu .menu-item', function (nodes) {
-      for (var index = 0; index < nodes.length; index += 1) if (nodes[index].textContent.indexOf('Среднее') !== -1) nodes[index].click();
-    });
+    await selectColumnAggregate(page, 0, 2, 'Среднее');
+    assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="2"]', function (node) { return node.textContent; }), '5000,5');
+    await selectColumnAggregate(page, 0, 1, 'Сумма');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '49995000');
+    await selectColumnAggregate(page, 0, 2, 'Нет');
+    assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
+    await selectColumnAggregate(page, 0, 1, 'Нет');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
+
+    await selectColumnAggregate(page, 0, 2, 'Сумма');
+    await page.click('button[title="Настроить отображение колонок"]');
+    await toggleColumnOption(page, 2);
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
+    await toggleColumnOption(page, 2);
+    assert.notStrictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-row', function (node) { return getComputedStyle(node).display; }), 'none');
+    assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="2"]', function (node) { return node.textContent; }), '50005000');
+    await page.click('button[title="Настроить отображение колонок"]');
+    await selectColumnAggregate(page, 0, 2, 'Нет');
 
     await page.click('.table-card[data-table-index="0"] .filter-cell[data-column="0"] .value-filter-button');
     assert.ok(await page.$$eval('.value-filter-option', function (nodes) { return nodes.length; }) < 100, 'Список значений должен быть виртуализирован');

@@ -57,6 +57,14 @@ describe('модель данных', function () {
     assert.deepEqual(data.tables[0].columnTypes, ['number', 'percent', 'date', 'text']);
   });
 
+  it('по умолчанию отключает итоги всех колонок', function () {
+    const data = model.parseData(tableData([
+      { columns: ['Текст', '10', '20%'] }
+    ], ['Текст', 'Число', 'Процент']));
+    const state = model.makeTableState(data.tables[0]);
+    assert.deepEqual(state.columnAggregates, ['none', 'none', 'none']);
+  });
+
   it('сортирует соседей стабильно и перенумеровывает результат', function () {
     const data = model.parseData(tableData([
       { columns: ['10'], children: [{ columns: ['3'] }, { columns: ['1'] }] },

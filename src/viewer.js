@@ -8,6 +8,7 @@ var AGGREGATES = [
   { value: 'max', label: 'Максимум' },
   { value: 'count', label: 'Количество' }
 ];
+var COLUMN_AGGREGATES = [{ value: 'none', label: 'Нет' }].concat(AGGREGATES);
 
 function element(tag, className, text) {
   var node = document.createElement(tag);
@@ -93,10 +94,10 @@ function removeValue(array, value) {
 }
 
 function aggregateLabel(value) {
-  for (var index = 0; index < AGGREGATES.length; index += 1) {
-    if (AGGREGATES[index].value === value) return AGGREGATES[index].label;
+  for (var index = 0; index < COLUMN_AGGREGATES.length; index += 1) {
+    if (COLUMN_AGGREGATES[index].value === value) return COLUMN_AGGREGATES[index].label;
   }
-  return AGGREGATES[0].label;
+  return COLUMN_AGGREGATES[0].label;
 }
 
 function formatAggregate(result, aggregate) {
@@ -394,7 +395,7 @@ ViewerApp.prototype.openAggregateMenu = function (view, columnIndex, anchor) {
   this.closeMenu();
   var menu = element('div', 'context-menu aggregate-menu');
   menu.setAttribute('role', 'menu');
-  for (var index = 0; index < AGGREGATES.length; index += 1) {
+  for (var index = 0; index < COLUMN_AGGREGATES.length; index += 1) {
     (function (aggregate) {
       var active = view.state.columnAggregates[columnIndex] === aggregate.value;
       addButton(menu, (active ? '✓ ' : '') + aggregate.label, '', function () {
@@ -403,8 +404,10 @@ ViewerApp.prototype.openAggregateMenu = function (view, columnIndex, anchor) {
         anchor.setAttribute('aria-label', anchor.title);
         self.closeMenu();
         view.renderFooter();
+        view.updateStickyPositions();
+        self.scheduleTableLayouts();
       }, 'menu-item' + (active ? ' menu-item-active' : ''));
-    })(AGGREGATES[index]);
+    })(COLUMN_AGGREGATES[index]);
   }
   document.body.appendChild(menu);
   this.menu = menu;
@@ -848,7 +851,7 @@ TableView.prototype.applyWidths = function () {
 TableView.prototype.applyHeight = function (singleVisible) {
   if (!this.viewport) return;
   var markerCount = (this.hiddenBefore ? 1 : 0) + (this.hiddenAfter ? 1 : 0);
-  var fixedRows = 2 + this.pinnedEntries.length + markerCount + 1;
+  var fixedRows = 2 + this.pinnedEntries.length + markerCount + (this.hasVisibleColumnAggregates() ? 1 : 0);
   var minimum = 3 * this.rowHeight + 2;
   var naturalRows = fixedRows + this.bodyEntries.length;
   var naturalHeight = naturalRows * this.rowHeight + 2;
@@ -880,7 +883,7 @@ TableView.prototype.refreshData = function () {
   this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
   this.app.scheduleTableLayouts();
 };
-TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.rowHeight + 'px'; };
+TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.hasVisibleColumnAggregates() ? this.rowHeight + 'px' : '0'; };
 TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
 TableView.prototype.renderRangeMarkers = function () { this.beforeMarker.style.display = this.hiddenBefore ? 'block' : 'none'; this.beforeMarker.textContent = this.hiddenBefore ? 'Показать ' + this.hiddenBefore + ' скрытых строк' : ''; this.afterMarker.style.display = this.hiddenAfter ? 'block' : 'none'; this.afterMarker.textContent = this.hiddenAfter ? 'Показать ' + this.hiddenAfter + ' скрытых строк' : ''; };
 
@@ -980,9 +983,19 @@ TableView.prototype.updateRenderedSelection = function () {
   }
 };
 
+TableView.prototype.hasVisibleColumnAggregates = function () {
+  for (var index = 0; index < this.layout.columns.length; index += 1) {
+    var aggregate = this.state.columnAggregates[this.layout.columns[index].modelIndex];
+    if (aggregate && aggregate !== 'none') return true;
+  }
+  return false;
+};
 TableView.prototype.renderFooter = function () {
-  clear(this.footer); var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);
-  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var text = ''; if (type === 'number' || type === 'percent') { var aggregate = this.state.columnAggregates[layout.modelIndex]; var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
+  clear(this.footer);
+  if (!this.hasVisibleColumnAggregates()) { this.footer.style.display = 'none'; return; }
+  this.footer.style.display = '';
+  var number = element('div', 'grid-cell totals-cell number-cell', 'Итого'); number.style.width = this.layout.numberWidth + 'px'; number.style.minWidth = this.layout.numberWidth + 'px'; number.style.maxWidth = this.layout.numberWidth + 'px'; number.style.position = '-webkit-sticky'; number.style.position = 'sticky'; number.style.left = '0'; number.style.zIndex = '9'; this.footer.appendChild(number);
+  for (var index = 0; index < this.layout.columns.length; index += 1) { var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var aggregate = this.state.columnAggregates[layout.modelIndex]; var text = ''; if ((type === 'number' || type === 'percent') && aggregate && aggregate !== 'none') { var result = model.calculateColumnAggregate(this.table, this.visibleRows, layout.modelIndex, aggregate); text = formatAggregate(result, aggregate); } var cell = element('div', 'grid-cell totals-cell', text); this.styleCell(cell, layout, true); cell.title = text; this.footer.appendChild(cell); }
 };
 TableView.prototype.updateCollapsed = function () { this.gridHost.style.display = this.state.collapsed ? 'none' : ''; this.collapseButton.textContent = this.state.collapsed ? '+' : '−'; this.collapseButton.title = this.state.collapsed ? 'Развернуть таблицу' : 'Свернуть таблицу'; if (!this.state.collapsed) this.refreshData(); this.app.scheduleTableLayouts(); };
 

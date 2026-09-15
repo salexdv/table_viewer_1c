@@ -24,3 +24,5 @@
 - [`table-viewer-controls`](done/table-viewer-controls/spec.md) — агрегаты, фильтры значений, диапазоны и ширины колонок.
 - [`table-viewer-layout-performance`](done/table-viewer-layout-performance/spec.md) — компактные команды,
   адаптивная компоновка и переиспользуемая виртуализация.
+- [`optional-column-aggregates`](done/optional-column-aggregates/spec.md) — отключаемые по умолчанию итоги колонок
+  и условный подвал таблицы.
