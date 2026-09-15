@@ -28,3 +28,5 @@
   и условный подвал таблицы.
 - [`compact-scrollbars`](done/compact-scrollbars/spec.md) — компактные полосы прокрутки страницы и таблиц.
 - [`auto-hide-scrollbars`](done/auto-hide-scrollbars/spec.md) — показ полос прокрутки при наведении или прокрутке.
+- [`custom-context-menu-events`](done/custom-context-menu-events/spec.md) — пользовательские команды контекстного
+  меню с передачей значения ячейки в событиях 1С.

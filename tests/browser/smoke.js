@@ -425,6 +425,69 @@ async function main() {
       { event: 'EVENT_EXPORT', params: {} }
     ]);
 
+    assert.deepStrictEqual(await page.evaluate(function () {
+      return [
+        window.addContextMenuItem('', 'EVENT_EMPTY_TITLE'),
+        window.addContextMenuItem('Пустое событие', '   '),
+        window.addContextMenuItem(null, 'EVENT_NULL_TITLE'),
+        window.addContextMenuItem('Некорректное событие', null),
+        window.addContextMenuItem('<img src=x onerror=alert(1)>', 'EVENT_CELL_VALUE'),
+        window.addContextMenuItem('Вторая команда', 'EVENT_SECOND')
+      ];
+    }), [false, false, false, false, true, true]);
+    await page.evaluate(function () {
+      window.setData({ tables: [
+        { name: 'Пользовательские события', columns: ['Значение'], rows: [
+          { columns: ['Текст'] },
+          { columns: [42] },
+          { columns: [true] },
+          { columns: [null] },
+          { columns: [{ label: 'Ссылка', ref: 'e1cib/data/Test?ref=custom' }] }
+        ] },
+        { name: 'Дерево событий', columns: ['Значение'], rows: [
+          { columns: ['Корень'], children: [{ columns: ['Лист'], children: [] }] }
+        ] }
+      ] });
+    });
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    assert.deepStrictEqual(await page.$$eval('.context-menu .menu-item', function (nodes) {
+      return nodes.map(function (node) { return node.textContent; });
+    }), [
+      'Зафиксировать колонку', 'Зафиксировать строку', 'Свернуть строки до', 'Свернуть строки после',
+      'Отбор по значению', '<img src=x onerror=alert(1)>', 'Вторая команда'
+    ]);
+    assert.strictEqual(await page.$$eval('.context-menu img', function (nodes) { return nodes.length; }), 0);
+    await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
+    assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 2);
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .number-cell', { button: 'right' });
+    assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 0);
+
+    for (let rowIndex = 0; rowIndex < 5; rowIndex += 1) {
+      await page.click('.table-card[data-table-index="0"] [data-row-id="' + rowIndex + '"] .data-cell', { button: 'right' });
+      await page.$$eval('.context-menu .custom-menu-item', function (nodes) { nodes[0].click(); });
+      await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    }
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await page.$$eval('.context-menu .custom-menu-item', function (nodes) { nodes[1].click(); });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__events.slice(-6); }), [
+      { event: 'EVENT_CELL_VALUE', params: { value: 'Текст' } },
+      { event: 'EVENT_CELL_VALUE', params: { value: 42 } },
+      { event: 'EVENT_CELL_VALUE', params: { value: true } },
+      { event: 'EVENT_CELL_VALUE', params: { value: null } },
+      { event: 'EVENT_CELL_VALUE', params: { value: 'Ссылка', ref: 'e1cib/data/Test?ref=custom' } },
+      { event: 'EVENT_SECOND', params: { value: 'Текст' } }
+    ]);
+
+    await page.evaluate(function () {
+      window.init({ tables: [{ name: 'События', columns: ['Ссылка', 'Сумма'], rows: [
+        { columns: [{ label: 'Открыть', ref: 'e1cib/data/Test?ref=1' }, '25'] },
+        { columns: ['Без ссылки', '15'] }
+      ] }] });
+    });
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 0);
+
     const cells = await page.$$('.table-card[data-table-index="0"] .data-cell[data-column="1"]');
     const first = await cells[0].boundingBox(); const second = await cells[1].boundingBox();
     await page.mouse.move(first.x + 8, first.y + 8); await page.mouse.down(); await page.mouse.move(second.x + 8, second.y + 8); await page.mouse.up();
@@ -450,6 +513,7 @@ async function main() {
       return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1;
     }), true);
     assert.strictEqual(await page.evaluate(function () { return window.destroy(); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.addContextMenuItem('После destroy', 'EVENT_AFTER_DESTROY'); }), false);
     assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
 
     assert.deepStrictEqual(errors, []);
