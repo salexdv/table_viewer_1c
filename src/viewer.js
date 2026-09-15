@@ -363,7 +363,9 @@ ViewerApp.prototype.renderColumnPanel = function (anchor) {
           else self.states[currentTable].hiddenColumns[currentColumn] = true;
           self.clearSelection();
           self.tableViews[currentTable].renderGrid();
-          self.renderColumnPanel(anchor);
+          setTimeout(function () {
+            if (self.columnPanel === panel) self.renderColumnPanel(anchor);
+          }, 0);
         });
         label.appendChild(checkbox);
         label.appendChild(document.createTextNode(table.columns[currentColumn]));
