@@ -852,6 +852,75 @@ async function main() {
     assert.strictEqual(await page.evaluate(function () { return window.expandAll(); }), true);
     assert.notStrictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none');
 
+    assert.strictEqual(await page.evaluate(function () {
+      return window.init({
+        tables: [{
+          id: 'metrics',
+          name: 'Показатели',
+          columns: [
+            { id: 'city', name: 'Город' },
+            { id: 'amount', name: 'Сумма' },
+            { id: 'comment', name: 'Комментарий' }
+          ],
+          rows: [{ columns: ['Москва', '100', 'Главный'] }, { columns: ['Казань', '200', 'Резервный'] }]
+        }],
+        settings: {
+          version: 1,
+          globalFilter: 'моск',
+          tables: [{
+            id: 'metrics',
+            scale: 120,
+            columnOrder: ['amount', 'city', 'comment'],
+            columns: [
+              { id: 'city', width: 210, filter: { text: '', exact: false, values: ['Москва'] } },
+              { id: 'amount', width: 190, aggregate: 'sum' },
+              { id: 'comment', visible: false }
+            ]
+          }]
+        }
+      });
+    }), true);
+    assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '120%');
+    assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
+      return nodes.map(function (node) { return node.textContent; });
+    }), ['Сумма', 'Город']);
+    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 1);
+    assert.strictEqual(await page.$eval('.totals-cell[data-column="1"]', function (node) { return node.textContent; }), '100');
+
+    const settingsSnapshot = await page.evaluate(function () {
+      var json = window.getSettings();
+      return { type: typeof json, json: json, value: JSON.parse(json) };
+    });
+    assert.strictEqual(settingsSnapshot.type, 'string');
+    assert.strictEqual(settingsSnapshot.value.version, 1);
+    assert.strictEqual(settingsSnapshot.value.tables[0].id, 'metrics');
+    assert.deepStrictEqual(settingsSnapshot.value.tables[0].columnOrder, ['amount', 'city', 'comment']);
+    assert.strictEqual(settingsSnapshot.value.tables[0].columns[0].width, 210);
+    assert.deepStrictEqual(settingsSnapshot.value.tables[0].columns[0].filter.values, ['Москва']);
+
+    assert.strictEqual(await page.evaluate(function () {
+      return window.setSettings(JSON.stringify({
+        globalFilter: '',
+        tables: [{ id: 'metrics', index: 99, scale: 150, columnOrder: ['city'], columns: [
+          { id: 'city', filter: null },
+          { id: 'amount', aggregate: 'average', filter: { values: [] } },
+          { id: 'comment', visible: true }
+        ] }]
+      }));
+    }), true);
+    assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '150%');
+    assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
+      return nodes.map(function (node) { return node.textContent; });
+    }), ['Город', 'Сумма', 'Комментарий']);
+    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 0);
+
+    assert.strictEqual(await page.evaluate(function (snapshot) { return window.setSettings(snapshot); }, settingsSnapshot.json), true);
+    assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '120%');
+    assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
+      return nodes.map(function (node) { return node.textContent; });
+    }), ['Сумма', 'Город']);
+    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 1);
+
     const errorsBeforeValidation = errors.length;
     assert.strictEqual(await page.evaluate(function () { return window.setData('{"tables":[],}'); }), false);
     assert.ok(await page.$('.error-box'));
@@ -872,9 +941,11 @@ async function main() {
         window.setCellValuePresentation('0', '<0>'),
         window.setCellValueColor('0', 'gray'),
         window.setShowEmptyReferences(true),
-        window.setEmptyReferenceColor('gray')
+        window.setEmptyReferenceColor('gray'),
+        window.getSettings(),
+        window.setSettings({})
       ];
-    }), [false, false, false, false, false]);
+    }), [false, false, false, false, false, false, false]);
     assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
 
     assert.deepStrictEqual(errors, []);

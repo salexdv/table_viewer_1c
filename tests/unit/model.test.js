@@ -34,6 +34,142 @@ describe('модель данных', function () {
     }, '$.tables[0].rows[0].columns[0]');
   });
 
+  it('разбирает идентификаторы и встроенные настройки без нарушения старого формата', function () {
+    const legacy = model.parseData(tableData([{ columns: ['Значение'] }]));
+    assert.isUndefined(legacy.tables[0].id);
+    assert.deepEqual(legacy.tables[0].columnIds, [null]);
+
+    const data = model.parseData({
+      tables: [{
+        id: 'sales',
+        name: 'Продажи',
+        columns: [{ id: 'product', name: 'Товар' }, { id: 'amount', name: 'Сумма' }],
+        rows: [{ columns: ['Стол', '100'] }]
+      }],
+      settings: { version: 1, globalFilter: 'стол', tables: [{ id: 'sales', scale: 110 }] }
+    });
+    assert.equal(data.tables[0].id, 'sales');
+    assert.deepEqual(data.tables[0].columns, ['Товар', 'Сумма']);
+    assert.deepEqual(data.tables[0].columnIds, ['product', 'amount']);
+    assert.equal(data.settings.tables[0].scale, 110);
+  });
+
+  it('отклоняет пустые и повторяющиеся идентификаторы данных', function () {
+    assert.throws(function () {
+      model.parseData({ tables: [
+        { id: 'same', name: 'A', columns: ['A'], rows: [] },
+        { id: 'same', name: 'B', columns: ['B'], rows: [] }
+      ] });
+    }, '$.tables[1].id: идентификатор таблицы повторяется');
+    assert.throws(function () {
+      model.parseData({ tables: [{
+        name: 'A',
+        columns: [{ id: 'same', name: 'A' }, { id: 'same', name: 'B' }],
+        rows: []
+      }] });
+    }, '$.tables[0].columns[1].id: идентификатор колонки повторяется');
+    assert.throws(function () {
+      model.parseData({ tables: [{ name: 'A', columns: [{ id: '', name: 'A' }], rows: [] }] });
+    }, '$.tables[0].columns[0].id: ожидалась непустая строка');
+  });
+
+  it('строит полный снимок и восстанавливает его по стабильным id', function () {
+    const source = model.parseData({ tables: [{
+      id: 'sales',
+      name: 'Продажи',
+      columns: [{ id: 'product', name: 'Товар' }, { id: 'amount', name: 'Сумма' }],
+      rows: [{ columns: ['Стол', '100'] }, { columns: ['Стул', '200'] }]
+    }] });
+    const sourceState = model.makeTableState(source.tables[0]);
+    sourceState.scale = 130;
+    sourceState.columnOrder = [1, 0];
+    sourceState.hiddenColumns[0] = true;
+    sourceState.widths[0] = 215;
+    sourceState.columnAggregates[1] = 'sum';
+    sourceState.columnFilters[0] = 'ст';
+    sourceState.exactFilters[0] = true;
+    sourceState.valueFilters[0] = Object.create(null);
+    sourceState.valueFilters[0]['Стол'] = true;
+    const snapshot = model.getViewSettings(source, [sourceState], 'продажи');
+
+    const target = model.parseData({ tables: [{
+      id: 'sales',
+      name: 'Продажи новые',
+      columns: [{ id: 'amount', name: 'Итого' }, { id: 'product', name: 'Номенклатура' }],
+      rows: [{ columns: ['100', 'Стол'] }]
+    }] });
+    const applied = model.applyViewSettings(target, [model.makeTableState(target.tables[0])], '', model.parseViewSettings(JSON.stringify(snapshot)));
+    assert.equal(applied.globalFilter, 'продажи');
+    assert.equal(applied.states[0].scale, 130);
+    assert.deepEqual(applied.states[0].columnOrder, [0, 1]);
+    assert.isTrue(applied.states[0].hiddenColumns[1]);
+    assert.equal(applied.states[0].widths[1], 215);
+    assert.equal(applied.states[0].columnAggregates[0], 'sum');
+    assert.equal(applied.states[0].columnFilters[1], 'ст');
+    assert.isTrue(applied.states[0].exactFilters[1]);
+    assert.deepEqual(Object.keys(applied.states[0].valueFilters[1]), ['Стол']);
+    assert.deepEqual(applied.warnings, []);
+  });
+
+  it('применяет частичный patch, индексный fallback и пустой фильтр значений', function () {
+    const data = model.parseData(tableData([{ columns: ['Москва', '10'] }], ['Город', 'Сумма']));
+    const state = model.makeTableState(data.tables[0]);
+    state.widths[0] = 190;
+    state.columnFilters[1] = 'старый';
+    const patch = model.parseViewSettings({
+      tables: [{ index: 0, scale: 120, columnOrder: [1], columns: [
+        { index: 0, visible: false },
+        { index: 1, aggregate: 'sum', filter: { text: '10', exact: true, values: [] } }
+      ] }]
+    });
+    const applied = model.applyViewSettings(data, [state], '', patch);
+    assert.equal(applied.states[0].scale, 120);
+    assert.deepEqual(applied.states[0].columnOrder, [1, 0]);
+    assert.equal(applied.states[0].widths[0], 190);
+    assert.isTrue(applied.states[0].hiddenColumns[0]);
+    assert.equal(applied.states[0].columnAggregates[1], 'sum');
+    assert.equal(applied.states[0].columnFilters[1], '10');
+    assert.isTrue(applied.states[0].exactFilters[1]);
+    assert.deepEqual(Object.keys(applied.states[0].valueFilters[1]), []);
+  });
+
+  it('не откатывается к индексу при неизвестном id и предупреждает о несовместимом агрегате', function () {
+    const data = model.parseData({ tables: [{
+      id: 'actual', name: 'Тест', columns: [{ id: 'text', name: 'Текст' }], rows: [{ columns: ['A'] }]
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    const applied = model.applyViewSettings(data, [state], '', model.parseViewSettings({ tables: [
+      { id: 'missing', index: 0, scale: 150 },
+      { id: 'actual', columns: [{ id: 'text', aggregate: 'sum' }, { id: 'missing', index: 0, visible: false }] }
+    ] }));
+    assert.equal(applied.states[0].scale, 100);
+    assert.equal(applied.states[0].columnAggregates[0], 'none');
+    assert.isFalse(!!applied.states[0].hiddenColumns[0]);
+    assert.lengthOf(applied.warnings, 3);
+  });
+
+  it('валидирует настройки атомарно и обнаруживает разные ссылки на одну цель', function () {
+    assert.throws(function () {
+      model.parseViewSettings({ tables: [{ index: 0, scale: 115 }] });
+    }, '$.tables[0].scale: ожидалось целое число от 50 до 200 с шагом 10');
+    assert.throws(function () {
+      model.parseViewSettings({ extra: true });
+    }, '$.extra: неизвестное поле');
+
+    const data = model.parseData({ tables: [{
+      id: 'table', name: 'Тест', columns: [{ id: 'column', name: 'Колонка' }], rows: []
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    const patch = model.parseViewSettings({ tables: [{ id: 'table', scale: 150, columns: [
+      { id: 'column', visible: false }, { index: 0, width: 200 }
+    ] }] });
+    assert.throws(function () {
+      model.applyViewSettings(data, [state], '', patch);
+    }, 'настройки указывают на уже настроенную колонку');
+    assert.equal(state.scale, 100);
+    assert.isFalse(!!state.hiddenColumns[0]);
+  });
+
   it('распознаёт числа, проценты и ведущие нули', function () {
     assert.deepEqual(model.parseNumeric('1 234,56'), { kind: 'number', value: 1234.56 });
     assert.deepEqual(model.parseNumeric('-12.5'), { kind: 'number', value: -12.5 });

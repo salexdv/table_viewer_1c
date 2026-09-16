@@ -331,14 +331,59 @@ ViewerApp.prototype.load = function (input) {
         else { this.showWaiting(); return false; }
       } else source = raw;
     }
-    this.data = model.parseData(source);
-    this.states = this.data.tables.map(model.makeTableState);
-    this.globalFilter = '';
+    var nextData = model.parseData(source);
+    var nextStates = nextData.tables.map(model.makeTableState);
+    var nextGlobalFilter = '';
+    var applied = null;
+    if (nextData.settings) {
+      applied = model.applyViewSettings(nextData, nextStates, nextGlobalFilter, nextData.settings);
+      nextStates = applied.states;
+      nextGlobalFilter = applied.globalFilter;
+    }
+    if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
+    this.globalSearchTimer = null;
+    this.data = nextData;
+    this.states = nextStates;
+    this.globalFilter = nextGlobalFilter;
     this.selectionResults = null;
+    if (applied) this.reportSettingsWarnings(applied.warnings);
     this.render();
     return true;
   } catch (error) {
     this.showError(error);
+    return false;
+  }
+};
+
+ViewerApp.prototype.reportSettingsWarnings = function (warnings) {
+  if (!window.console || !console.warn) return;
+  for (var index = 0; index < warnings.length; index += 1) console.warn(warnings[index]);
+};
+
+ViewerApp.prototype.getSettings = function () {
+  return JSON.stringify(model.getViewSettings(this.data, this.states, this.globalFilter));
+};
+
+ViewerApp.prototype.setSettings = function (input) {
+  try {
+    var settings = model.parseViewSettings(input);
+    var applied = model.applyViewSettings(this.data, this.states, this.globalFilter, settings);
+    for (var index = 0; index < applied.states.length; index += 1) applied.states[index].selection = null;
+    this.closeMenu();
+    this.closeColumnPanel();
+    this.closeFilterPanel();
+    this.closeSelectionPopup();
+    if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
+    this.globalSearchTimer = null;
+    this.states = applied.states;
+    this.globalFilter = applied.globalFilter;
+    this.draggingView = null;
+    this.selectionResults = null;
+    this.reportSettingsWarnings(applied.warnings);
+    this.render();
+    return true;
+  } catch (error) {
+    if (window.console && console.error) console.error(error);
     return false;
   }
 };
@@ -368,8 +413,9 @@ ViewerApp.prototype.render = function () {
   var toolbar = element('div', 'global-toolbar');
   addSearchControl(toolbar, 'global-search-control', 'global-search', 'Поиск по всем таблицам…', 'Глобальный поиск', 'Очистить глобальный поиск', this.globalFilter, function (value) {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
+    self.globalFilter = value;
     self.globalSearchTimer = setTimeout(function () {
-      self.globalFilter = value;
+      self.globalSearchTimer = null;
       self.resetRowRanges();
       self.clearSelection();
       self.refreshTables();
@@ -965,7 +1011,10 @@ TableView.prototype.getColumnLayout = function (availableWidth) {
     var pin = this.state.pinnedColumns[pinIndex];
     if (!this.state.hiddenColumns[pin] && !seen[pin]) { pinned.push(pin); seen[pin] = true; }
   }
-  for (var index = 0; index < this.table.columns.length; index += 1) if (!this.state.hiddenColumns[index] && !seen[index]) regular.push(index);
+  for (var index = 0; index < this.state.columnOrder.length; index += 1) {
+    var orderedColumn = this.state.columnOrder[index];
+    if (!this.state.hiddenColumns[orderedColumn] && !seen[orderedColumn]) regular.push(orderedColumn);
+  }
   this.visibleColumns = pinned.concat(regular);
   var numberWidth = Math.max(42, Math.round(this.state.rowNumberWidth * scale)); var rawWidths = []; var rawTotal = 0;
   for (var visibleIndex = 0; visibleIndex < this.visibleColumns.length; visibleIndex += 1) {
@@ -1414,6 +1463,8 @@ TableView.prototype.updateCollapsed = function () { this.gridHost.style.display 
 function installPublicApi() {
   window.init = function (data) { if (currentApp) currentApp.destroy(); var root = document.getElementById('app'); if (!root) return false; currentApp = new ViewerApp(root); return currentApp.load(data); };
   window.setData = function (data) { if (!currentApp) return window.init(data); return currentApp.load(data); };
+  window.getSettings = function () { return currentApp ? currentApp.getSettings() : false; };
+  window.setSettings = function (settings) { return currentApp ? currentApp.setSettings(settings) : false; };
   window.setTableCollapsed = function (tableIndex, collapsed) { return currentApp ? currentApp.setTableCollapsed(Number(tableIndex), collapsed) : false; };
   window.setTreeExpanded = function (tableIndex, expanded) { return currentApp ? currentApp.setTreeExpanded(Number(tableIndex), expanded) : false; };
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };

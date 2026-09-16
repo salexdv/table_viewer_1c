@@ -90,6 +90,164 @@ function validateCell(value, path) {
   fail(path, 'ожидалось простое значение или объект { label, ref }');
 }
 
+function validateKnownFields(value, allowed, path) {
+  for (var key in value) {
+    if (hasOwn(value, key) && !hasOwn(allowed, key)) fail(path + '.' + key, 'неизвестное поле');
+  }
+}
+
+function validateIdentifier(value, path) {
+  if (typeof value !== 'string' || !value.trim()) fail(path, 'ожидалась непустая строка');
+  return value;
+}
+
+function validateTarget(source, path) {
+  var target = {};
+  if (!hasOwn(source, 'id') && !hasOwn(source, 'index')) fail(path, 'ожидалось поле id или index');
+  if (hasOwn(source, 'id')) target.id = validateIdentifier(source.id, path + '.id');
+  if (hasOwn(source, 'index')) {
+    if (typeof source.index !== 'number' || !isFinite(source.index) || source.index < 0 || Math.floor(source.index) !== source.index) {
+      fail(path + '.index', 'ожидалось целое неотрицательное число');
+    }
+    target.index = source.index;
+  }
+  return target;
+}
+
+function targetKey(target) {
+  return hasOwn(target, 'id') ? 'id:' + target.id : 'index:' + target.index;
+}
+
+function parseFilterPatch(source, path) {
+  if (source === null) return null;
+  if (!isObject(source)) fail(path, 'ожидался объект или null');
+  validateKnownFields(source, { text: true, exact: true, values: true }, path);
+  var filter = {};
+  if (hasOwn(source, 'text')) {
+    if (typeof source.text !== 'string') fail(path + '.text', 'ожидалась строка');
+    filter.text = source.text;
+  }
+  if (hasOwn(source, 'exact')) {
+    if (typeof source.exact !== 'boolean') fail(path + '.exact', 'ожидалось boolean-значение');
+    filter.exact = source.exact;
+  }
+  if (hasOwn(source, 'values')) {
+    if (source.values === null) filter.values = null;
+    else {
+      if (!Array.isArray(source.values)) fail(path + '.values', 'ожидался массив строк или null');
+      filter.values = source.values.map(function (value, index) {
+        if (typeof value !== 'string') fail(path + '.values[' + index + ']', 'ожидалась строка');
+        return value;
+      });
+    }
+  }
+  return filter;
+}
+
+function parseColumnSettingsPatch(source, path) {
+  if (!isObject(source)) fail(path, 'ожидался объект');
+  validateKnownFields(source, {
+    id: true, index: true, visible: true, width: true, aggregate: true, filter: true
+  }, path);
+  var result = validateTarget(source, path);
+  if (hasOwn(source, 'visible')) {
+    if (typeof source.visible !== 'boolean') fail(path + '.visible', 'ожидалось boolean-значение');
+    result.visible = source.visible;
+  }
+  if (hasOwn(source, 'width')) {
+    if (typeof source.width !== 'number' || !isFinite(source.width) || source.width < 60) {
+      fail(path + '.width', 'ожидалось конечное число не меньше 60');
+    }
+    result.width = source.width;
+  }
+  if (hasOwn(source, 'aggregate')) {
+    if (['none', 'sum', 'average', 'min', 'max', 'count'].indexOf(source.aggregate) === -1) {
+      fail(path + '.aggregate', 'неподдерживаемая функция итога');
+    }
+    result.aggregate = source.aggregate;
+  }
+  if (hasOwn(source, 'filter')) result.filter = parseFilterPatch(source.filter, path + '.filter');
+  return result;
+}
+
+function parseTableSettingsPatch(source, path) {
+  if (!isObject(source)) fail(path, 'ожидался объект');
+  validateKnownFields(source, {
+    id: true, index: true, scale: true, columnOrder: true, columns: true
+  }, path);
+  var result = validateTarget(source, path);
+  if (hasOwn(source, 'scale')) {
+    if (
+      typeof source.scale !== 'number' || !isFinite(source.scale) || source.scale < 50 || source.scale > 200 ||
+      Math.floor(source.scale) !== source.scale || source.scale % 10 !== 0
+    ) fail(path + '.scale', 'ожидалось целое число от 50 до 200 с шагом 10');
+    result.scale = source.scale;
+  }
+  if (hasOwn(source, 'columnOrder')) {
+    if (!Array.isArray(source.columnOrder)) fail(path + '.columnOrder', 'ожидался массив id или индексов');
+    var orderSeen = Object.create(null);
+    result.columnOrder = source.columnOrder.map(function (reference, index) {
+      var key;
+      if (typeof reference === 'string' && reference.trim()) key = 'id:' + reference;
+      else if (typeof reference === 'number' && isFinite(reference) && reference >= 0 && Math.floor(reference) === reference) key = 'index:' + reference;
+      else fail(path + '.columnOrder[' + index + ']', 'ожидался непустой строковый id или целый неотрицательный индекс');
+      if (hasOwn(orderSeen, key)) fail(path + '.columnOrder[' + index + ']', 'ссылка на колонку повторяется');
+      orderSeen[key] = true;
+      return reference;
+    });
+  }
+  if (hasOwn(source, 'columns')) {
+    if (!Array.isArray(source.columns)) fail(path + '.columns', 'ожидался массив');
+    var columnsSeen = Object.create(null);
+    result.columns = source.columns.map(function (column, index) {
+      var parsed = parseColumnSettingsPatch(column, path + '.columns[' + index + ']');
+      var key = targetKey(parsed);
+      if (hasOwn(columnsSeen, key)) fail(path + '.columns[' + index + ']', 'настройки колонки повторяются');
+      columnsSeen[key] = true;
+      return parsed;
+    });
+  }
+  return result;
+}
+
+function parseViewSettingsObject(source, path) {
+  if (!isObject(source)) fail(path, 'ожидался объект');
+  validateKnownFields(source, { version: true, globalFilter: true, tables: true }, path);
+  var result = {};
+  if (hasOwn(source, 'version')) {
+    if (source.version !== 1) fail(path + '.version', 'поддерживается только версия 1');
+    result.version = 1;
+  }
+  if (hasOwn(source, 'globalFilter')) {
+    if (typeof source.globalFilter !== 'string') fail(path + '.globalFilter', 'ожидалась строка');
+    result.globalFilter = source.globalFilter;
+  }
+  if (hasOwn(source, 'tables')) {
+    if (!Array.isArray(source.tables)) fail(path + '.tables', 'ожидался массив');
+    var tablesSeen = Object.create(null);
+    result.tables = source.tables.map(function (table, index) {
+      var parsed = parseTableSettingsPatch(table, path + '.tables[' + index + ']');
+      var key = targetKey(parsed);
+      if (hasOwn(tablesSeen, key)) fail(path + '.tables[' + index + ']', 'настройки таблицы повторяются');
+      tablesSeen[key] = true;
+      return parsed;
+    });
+  }
+  return result;
+}
+
+function parseViewSettings(input) {
+  var source = input;
+  if (typeof input === 'string') {
+    try {
+      source = JSON.parse(input);
+    } catch (error) {
+      fail('$', 'не удалось разобрать JSON — ' + error.message);
+    }
+  }
+  return parseViewSettingsObject(source, '$');
+}
+
 function parseData(input) {
   var source = input;
   if (typeof input === 'string') {
@@ -104,20 +262,41 @@ function parseData(input) {
   if (!Array.isArray(source.tables)) fail('$.tables', 'ожидался массив');
 
   var tables = [];
+  var tableIds = Object.create(null);
   for (var tableIndex = 0; tableIndex < source.tables.length; tableIndex += 1) {
     var rawTable = source.tables[tableIndex];
     var tablePath = '$.tables[' + tableIndex + ']';
     if (!isObject(rawTable)) fail(tablePath, 'ожидался объект');
     if (typeof rawTable.name !== 'string') fail(tablePath + '.name', 'ожидалась строка');
-    if (!Array.isArray(rawTable.columns)) fail(tablePath + '.columns', 'ожидался массив строк');
+    if (!Array.isArray(rawTable.columns)) fail(tablePath + '.columns', 'ожидался массив колонок');
     if (!Array.isArray(rawTable.rows)) fail(tablePath + '.rows', 'ожидался массив');
 
+    var tableId;
+    if (hasOwn(rawTable, 'id')) {
+      tableId = validateIdentifier(rawTable.id, tablePath + '.id');
+      if (hasOwn(tableIds, tableId)) fail(tablePath + '.id', 'идентификатор таблицы повторяется');
+      tableIds[tableId] = true;
+    }
+
+    var columnIds = [];
+    var seenColumnIds = Object.create(null);
     var columns = rawTable.columns.map(function (column, columnIndex) {
-      if (typeof column !== 'string') fail(tablePath + '.columns[' + columnIndex + ']', 'ожидалась строка');
-      return column;
+      var columnPath = tablePath + '.columns[' + columnIndex + ']';
+      if (typeof column === 'string') {
+        columnIds.push(null);
+        return column;
+      }
+      if (!isObject(column)) fail(columnPath, 'ожидалась строка или объект { id, name }');
+      validateKnownFields(column, { id: true, name: true }, columnPath);
+      var columnId = validateIdentifier(column.id, columnPath + '.id');
+      if (typeof column.name !== 'string') fail(columnPath + '.name', 'ожидалась строка');
+      if (hasOwn(seenColumnIds, columnId)) fail(columnPath + '.id', 'идентификатор колонки повторяется');
+      seenColumnIds[columnId] = true;
+      columnIds.push(columnId);
+      return column.name;
     });
     var roots = new Array(rawTable.rows.length);
-    var table = { name: rawTable.name, columns: columns, rows: roots, isTree: false, nodeCount: 0 };
+    var table = { id: tableId, name: rawTable.name, columns: columns, columnIds: columnIds, rows: roots, isTree: false, nodeCount: 0 };
     var stack = [];
 
     for (var rootIndex = rawTable.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
@@ -173,7 +352,9 @@ function parseData(input) {
     tables.push(table);
   }
 
-  return { tables: tables };
+  var result = { tables: tables };
+  if (hasOwn(source, 'settings')) result.settings = parseViewSettingsObject(source.settings, '$.settings');
+  return result;
 }
 
 function cellText(value) {
@@ -586,12 +767,14 @@ function makeTableState(table) {
   var filters = [];
   var valueFilters = [];
   var columnAggregates = [];
+  var columnOrder = [];
   var nodes = allNodes(table);
   for (var index = 0; index < table.columns.length; index += 1) {
     widths.push(initialColumnWidth(table, nodes, index));
     filters.push('');
     valueFilters.push(null);
     columnAggregates.push('none');
+    columnOrder.push(index);
   }
   return {
     collapsed: false,
@@ -601,6 +784,7 @@ function makeTableState(table) {
     valueFilters: valueFilters,
     columnAggregates: columnAggregates,
     hiddenColumns: {},
+    columnOrder: columnOrder,
     pinnedColumns: [],
     pinnedRows: [],
     rowNumberWidth: initialRowNumberWidth(table),
@@ -611,6 +795,220 @@ function makeTableState(table) {
     rowWindow: null,
     hiddenRows: {}
   };
+}
+
+function cloneMap(source) {
+  var result = Object.create(null);
+  if (!source) return result;
+  for (var key in source) if (hasOwn(source, key)) result[key] = source[key];
+  return result;
+}
+
+function cloneValueFilters(source) {
+  var result = [];
+  for (var index = 0; index < source.length; index += 1) {
+    if (source[index] === null) result.push(null);
+    else result.push(cloneMap(source[index]));
+  }
+  return result;
+}
+
+function cloneTableState(state) {
+  return {
+    collapsed: state.collapsed,
+    collapsedRows: cloneMap(state.collapsedRows),
+    columnFilters: state.columnFilters.slice(),
+    exactFilters: cloneMap(state.exactFilters),
+    valueFilters: cloneValueFilters(state.valueFilters),
+    columnAggregates: state.columnAggregates.slice(),
+    hiddenColumns: cloneMap(state.hiddenColumns),
+    columnOrder: state.columnOrder.slice(),
+    pinnedColumns: state.pinnedColumns.slice(),
+    pinnedRows: state.pinnedRows.slice(),
+    rowNumberWidth: state.rowNumberWidth,
+    widths: state.widths.slice(),
+    scale: state.scale,
+    sort: { column: state.sort.column, direction: state.sort.direction },
+    selection: state.selection ? {
+      startRow: state.selection.startRow,
+      endRow: state.selection.endRow,
+      startColumn: state.selection.startColumn,
+      endColumn: state.selection.endColumn
+    } : null,
+    rowWindow: state.rowWindow ? { start: state.rowWindow.start, end: state.rowWindow.end } : null,
+    hiddenRows: cloneMap(state.hiddenRows)
+  };
+}
+
+function findTableIndex(data, target) {
+  var index;
+  if (hasOwn(target, 'id')) {
+    for (index = 0; index < data.tables.length; index += 1) if (data.tables[index].id === target.id) return index;
+    return -1;
+  }
+  return target.index < data.tables.length ? target.index : -1;
+}
+
+function findColumnIndex(table, reference) {
+  var index;
+  if (typeof reference === 'string') {
+    for (index = 0; index < table.columnIds.length; index += 1) if (table.columnIds[index] === reference) return index;
+    return -1;
+  }
+  return reference < table.columns.length ? reference : -1;
+}
+
+function findColumnTargetIndex(table, target) {
+  return hasOwn(target, 'id') ? findColumnIndex(table, target.id) : findColumnIndex(table, target.index);
+}
+
+function warningTarget(target) {
+  return hasOwn(target, 'id') ? 'id=' + JSON.stringify(target.id) : 'index=' + target.index;
+}
+
+function applyColumnOrder(table, state, references, path, warnings) {
+  var resolved = [];
+  var seen = Object.create(null);
+  for (var index = 0; index < references.length; index += 1) {
+    var columnIndex = findColumnIndex(table, references[index]);
+    if (columnIndex === -1) {
+      warnings.push(path + '[' + index + ']: колонка не найдена, ссылка пропущена');
+      continue;
+    }
+    if (hasOwn(seen, columnIndex)) fail(path + '[' + index + ']', 'ссылки указывают на одну колонку');
+    seen[columnIndex] = true;
+    resolved.push(columnIndex);
+  }
+  for (var orderIndex = 0; orderIndex < state.columnOrder.length; orderIndex += 1) {
+    var current = state.columnOrder[orderIndex];
+    if (!hasOwn(seen, current)) resolved.push(current);
+  }
+  state.columnOrder = resolved;
+}
+
+function valuesToMap(values) {
+  if (values === null) return null;
+  var result = Object.create(null);
+  for (var index = 0; index < values.length; index += 1) result[values[index]] = true;
+  return result;
+}
+
+function applyFilterPatch(state, columnIndex, filter) {
+  if (filter === null) {
+    state.columnFilters[columnIndex] = '';
+    delete state.exactFilters[columnIndex];
+    state.valueFilters[columnIndex] = null;
+    return;
+  }
+  if (hasOwn(filter, 'text')) state.columnFilters[columnIndex] = filter.text;
+  if (hasOwn(filter, 'exact')) {
+    if (filter.exact) state.exactFilters[columnIndex] = true;
+    else delete state.exactFilters[columnIndex];
+  }
+  if (hasOwn(filter, 'values')) state.valueFilters[columnIndex] = valuesToMap(filter.values);
+}
+
+function applyViewSettings(data, states, globalFilter, settings) {
+  var nextStates = states.map(cloneTableState);
+  var nextGlobalFilter = globalFilter;
+  var warnings = [];
+  var filtersChanged = Object.create(null);
+  if (hasOwn(settings, 'globalFilter')) {
+    nextGlobalFilter = settings.globalFilter;
+    for (var globalIndex = 0; globalIndex < nextStates.length; globalIndex += 1) filtersChanged[globalIndex] = true;
+  }
+
+  var tablePatches = settings.tables || [];
+  var resolvedTables = Object.create(null);
+  for (var patchIndex = 0; patchIndex < tablePatches.length; patchIndex += 1) {
+    var tablePatch = tablePatches[patchIndex];
+    var tablePath = '$.tables[' + patchIndex + ']';
+    var tableIndex = findTableIndex(data, tablePatch);
+    if (tableIndex === -1) {
+      warnings.push(tablePath + ': таблица ' + warningTarget(tablePatch) + ' не найдена, настройки пропущены');
+      continue;
+    }
+    if (hasOwn(resolvedTables, tableIndex)) fail(tablePath, 'настройки указывают на уже настроенную таблицу');
+    resolvedTables[tableIndex] = true;
+    var table = data.tables[tableIndex];
+    var state = nextStates[tableIndex];
+    if (hasOwn(tablePatch, 'scale')) state.scale = tablePatch.scale;
+    if (hasOwn(tablePatch, 'columnOrder')) applyColumnOrder(table, state, tablePatch.columnOrder, tablePath + '.columnOrder', warnings);
+
+    var columnPatches = tablePatch.columns || [];
+    var resolvedColumns = Object.create(null);
+    for (var columnPatchIndex = 0; columnPatchIndex < columnPatches.length; columnPatchIndex += 1) {
+      var columnPatch = columnPatches[columnPatchIndex];
+      var columnPath = tablePath + '.columns[' + columnPatchIndex + ']';
+      var columnIndex = findColumnTargetIndex(table, columnPatch);
+      if (columnIndex === -1) {
+        warnings.push(columnPath + ': колонка ' + warningTarget(columnPatch) + ' не найдена, настройки пропущены');
+        continue;
+      }
+      if (hasOwn(resolvedColumns, columnIndex)) fail(columnPath, 'настройки указывают на уже настроенную колонку');
+      resolvedColumns[columnIndex] = true;
+      if (hasOwn(columnPatch, 'visible')) {
+        if (columnPatch.visible) delete state.hiddenColumns[columnIndex];
+        else state.hiddenColumns[columnIndex] = true;
+      }
+      if (hasOwn(columnPatch, 'width')) state.widths[columnIndex] = columnPatch.width;
+      if (hasOwn(columnPatch, 'aggregate')) {
+        var numeric = table.columnTypes[columnIndex] === 'number' || table.columnTypes[columnIndex] === 'percent';
+        if (columnPatch.aggregate !== 'none' && !numeric) {
+          warnings.push(columnPath + '.aggregate: функция итога несовместима с типом колонки, настройка пропущена');
+        } else state.columnAggregates[columnIndex] = columnPatch.aggregate;
+      }
+      if (hasOwn(columnPatch, 'filter')) {
+        applyFilterPatch(state, columnIndex, columnPatch.filter);
+        filtersChanged[tableIndex] = true;
+      }
+    }
+  }
+
+  for (var filterTableIndex in filtersChanged) {
+    if (!hasOwn(filtersChanged, filterTableIndex)) continue;
+    nextStates[filterTableIndex].rowWindow = null;
+    nextStates[filterTableIndex].hiddenRows = {};
+  }
+  return { states: nextStates, globalFilter: nextGlobalFilter, warnings: warnings };
+}
+
+function valueFilterSnapshot(filter) {
+  return filter === null ? null : Object.keys(filter);
+}
+
+function getViewSettings(data, states, globalFilter) {
+  var result = { version: 1, globalFilter: globalFilter, tables: [] };
+  for (var tableIndex = 0; tableIndex < data.tables.length; tableIndex += 1) {
+    var table = data.tables[tableIndex];
+    var state = states[tableIndex];
+    var tableSettings = {
+      index: tableIndex,
+      scale: state.scale,
+      columnOrder: state.columnOrder.map(function (columnIndex) {
+        return table.columnIds[columnIndex] === null ? columnIndex : table.columnIds[columnIndex];
+      }),
+      columns: []
+    };
+    if (table.id !== undefined) tableSettings.id = table.id;
+    for (var columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+      var columnSettings = {
+        index: columnIndex,
+        visible: !state.hiddenColumns[columnIndex],
+        width: state.widths[columnIndex],
+        aggregate: state.columnAggregates[columnIndex],
+        filter: {
+          text: state.columnFilters[columnIndex],
+          exact: !!state.exactFilters[columnIndex],
+          values: valueFilterSnapshot(state.valueFilters[columnIndex])
+        }
+      };
+      if (table.columnIds[columnIndex] !== null) columnSettings.id = table.columnIds[columnIndex];
+      tableSettings.columns.push(columnSettings);
+    }
+    result.tables.push(tableSettings);
+  }
+  return result;
 }
 
 function calculateAggregates(values) {
@@ -710,6 +1108,9 @@ function formatNumber(value, kind) {
 module.exports = {
   ValidationError: ValidationError,
   parseData: parseData,
+  parseViewSettings: parseViewSettings,
+  applyViewSettings: applyViewSettings,
+  getViewSettings: getViewSettings,
   cellText: cellText,
   parseNumeric: parseNumeric,
   parseDate: parseDate,
