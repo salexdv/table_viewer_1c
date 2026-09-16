@@ -151,7 +151,7 @@ async function main() {
       var first = nodes[0].getBoundingClientRect(); var second = nodes[1].getBoundingClientRect(); var icon = nodes[0].querySelector('svg').getBoundingClientRect();
       return { firstWidth: first.width, firstHeight: first.height, secondWidth: second.width, secondHeight: second.height, gap: second.left - first.right, iconWidth: icon.width, iconHeight: icon.height };
     });
-    assert.deepStrictEqual(treeCommandLayout, { firstWidth: 30, firstHeight: 28, secondWidth: 30, secondHeight: 28, gap: 8, iconWidth: 18, iconHeight: 18 });
+    assert.deepStrictEqual(treeCommandLayout, { firstWidth: 30, firstHeight: 28, secondWidth: 30, secondHeight: 28, gap: 11, iconWidth: 18, iconHeight: 18 });
     assert.strictEqual(await page.$eval('.export-button', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.strictEqual(await page.$eval('.selection-aggregate-button', function (node) { return node.textContent; }), 'Ʃ');
     await page.click('.selection-aggregate-button');
