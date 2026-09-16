@@ -35,10 +35,27 @@ npm run build
 Готовый файл находится в `dist/index.html`. Команда сборки дополнительно проверяет, что HTML единственный,
 не содержит внешних ресурсов, сохраняет `_DATA_`, а inline JavaScript разбирается как ES2015.
 
-При публикации [GitHub Release](https://github.com/salexdv/table_viewer_1c/releases) этот файл автоматически
-собирается и прикладывается к релизу под именем `table_viewer.html`. Workflow также можно запустить вручную на
-вкладке Actions: в этом случае готовый файл сохраняется в Actions Artifact `table_viewer-html`, не изменяя
-релизы.
+При публикации [GitHub Release](https://github.com/salexdv/table_viewer_1c/releases) проект автоматически
+собирается, а к релизу прикладываются готовый `table_viewer.html` и тестовая обработка 1С
+`TestTableViewer.epf`. Workflow также можно запустить вручную на вкладке Actions: в этом случае файлы
+сохраняются в Actions Artifacts `table_viewer-html` и `test-table-viewer-epf`, не изменяя релизы.
+
+## Выпуск релизов
+
+Версии формируются [Release Please](https://github.com/googleapis/release-please) из сообщений коммитов по
+соглашению [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `fix:` повышает patch-версию (`1.0.0` → `1.0.1`);
+- `feat:` повышает minor-версию (`1.0.0` → `1.1.0`);
+- `feat!:`, `fix!:` или footer `BREAKING CHANGE:` повышает major-версию (`1.0.0` → `2.0.0`).
+
+После появления пользовательских изменений Release Please создаёт или обновляет Release PR с новой версией
+и `CHANGELOG.md`. Слияние этого PR создаёт тег `vX.Y.Z`, публикует GitHub Release и запускает загрузку обоих
+готовых файлов. `tests/TestTableViewer.epf` хранится в Git как бинарный файл: перед выпуском нужно обновить и
+закоммитить обработку, чтобы она соответствовала релизному исходному коду.
+
+Для работы Release Please в настройках репозитория GitHub Actions должно быть разрешено создавать pull
+requests. Автоматическая публикация npm-пакета не выполняется.
 
 Для разработки и проверок:
 

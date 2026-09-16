@@ -1,7 +1,7 @@
 ---
 issue: -
 title: SemVer-релизы с HTML и EPF
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16

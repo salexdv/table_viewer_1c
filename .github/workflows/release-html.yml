@@ -1,23 +1,59 @@
-name: Публикация HTML-сборки
+name: Выпуск релиза
 
-# Собирает автономный dist/index.html и прикладывает его к опубликованному релизу
-# как table_viewer.html. Ручной запуск сохраняет тот же файл в Actions Artifacts.
+# Release Please готовит SemVer-релиз, после чего workflow собирает автономный HTML
+# и публикует его вместе с тестовой обработкой 1С.
 
 on:
+  push:
+    branches:
+      - master
   release:
     types: [published]
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  build-html:
+  release_please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_sha: ${{ steps.release.outputs.sha }}
+
+    steps:
+      - name: Подготовить или опубликовать релиз
+        id: release
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build_assets:
+    needs: release_please
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'release' ||
+      needs.release_please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Получение исходников
+      - name: Получение исходников созданного релиза
+        if: needs.release_please.outputs.release_created == 'true'
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_please.outputs.release_sha }}
+
+      - name: Получение исходников опубликованного или ручного запуска
+        if: needs.release_please.outputs.release_created != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - name: Установка Node.js
         uses: actions/setup-node@v4
@@ -34,16 +70,28 @@ jobs:
       - name: Подготовка артефакта
         run: cp dist/index.html table_viewer.html
 
-      - name: Приложить файл к релизу
-        if: github.event_name == 'release'
+      - name: Проверка тестовой обработки
+        run: test -s tests/TestTableViewer.epf
+
+      - name: Приложить файлы к релизу
+        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" table_viewer.html --clobber
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || needs.release_please.outputs.tag_name }}
+        run: gh release upload "$RELEASE_TAG" table_viewer.html tests/TestTableViewer.epf --clobber
 
-      - name: Сохранить артефакт ручного запуска
+      - name: Сохранить HTML ручного запуска
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: table_viewer-html
           path: table_viewer.html
+          if-no-files-found: error
+
+      - name: Сохранить EPF ручного запуска
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-table-viewer-epf
+          path: tests/TestTableViewer.epf
           if-no-files-found: error
