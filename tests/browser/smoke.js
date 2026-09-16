@@ -132,16 +132,17 @@ async function main() {
     assert.deepStrictEqual(await page.$eval('.toolbar-columns-group', function (node) {
       return Array.prototype.map.call(node.children, function (child) { return { text: child.textContent, className: child.className }; });
     }), [
-      { text: 'Колонки', className: 'button' },
-      { text: '', className: 'icon-button command-icon-button wrap-text-button' }
+      { text: 'Колонки', className: 'button' }
     ]);
+    assert.strictEqual(await page.$eval('.toolbar-wrap-text-group', function (node) { return node.children.length; }), 1);
     assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
     assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return node.className; }); }), [
       'toolbar-group toolbar-columns-group',
+      'toolbar-group toolbar-wrap-text-group',
       'toolbar-group toolbar-global-group',
       'toolbar-group toolbar-selection-group'
     ]);
-    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return getComputedStyle(node).borderLeftWidth; }); }), ['0px', '1px', '1px']);
+    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return getComputedStyle(node).borderLeftWidth; }); }), ['0px', '1px', '1px', '1px']);
     const desktopToolbar = await page.$eval('.global-toolbar', function (node) {
       return { toolbar: node.getBoundingClientRect().width, search: node.querySelector('.global-search').getBoundingClientRect().width };
     });

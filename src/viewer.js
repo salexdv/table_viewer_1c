@@ -442,12 +442,14 @@ ViewerApp.prototype.render = function () {
     event.stopPropagation();
     self.toggleColumnPanel(columnsButton);
   });
-  this.wrapTextButton = addIconButton(columnsGroup, 'wrap-text', 'Переносить текст', function () {
+  commands.appendChild(columnsGroup);
+  var wrapTextGroup = element('div', 'toolbar-group toolbar-wrap-text-group');
+  this.wrapTextButton = addIconButton(wrapTextGroup, 'wrap-text', 'Переносить текст', function () {
     self.toggleTextWrapping();
   }, 'icon-button command-icon-button wrap-text-button');
   this.wrapTextButton.setAttribute('aria-pressed', this.wrapText ? 'true' : 'false');
   setClass(this.root, 'text-wrapping', this.wrapText);
-  commands.appendChild(columnsGroup);
+  commands.appendChild(wrapTextGroup);
   var globalGroup = element('div', 'toolbar-group toolbar-global-group');
   addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
   addIconButton(globalGroup, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
