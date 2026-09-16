@@ -40,3 +40,5 @@
   порядка и параметров колонок и всех фильтров.
 - [`cell-display-customization`](done/cell-display-customization/spec.md) — настройка представления и цвета точных
   значений, отрицательных чисел и пустых ссылок.
+- [`cell-text-wrapping`](done/cell-text-wrapping/spec.md) — глобальный перенос значений и виртуализация строк
+  переменной высоты.
