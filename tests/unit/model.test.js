@@ -54,6 +54,35 @@ describe('модель данных', function () {
     assert.equal(data.settings.tables[0].scale, 110);
   });
 
+  it('валидирует, сохраняет и атомарно применяет тему Settings версии 1', function () {
+    const data = model.parseData({ tables: [{
+      name: 'Тема', columns: [{ id: 'value', name: 'Значение' }], rows: [{ columns: ['Значение'] }]
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    const darkPatch = model.parseViewSettings({ version: 1, theme: 'dark' });
+    const darkApplied = model.applyViewSettings(data, [state], '', darkPatch, 'light');
+    assert.equal(darkApplied.theme, 'dark');
+
+    const snapshot = model.getViewSettings(data, darkApplied.states, '', darkApplied.theme);
+    assert.equal(snapshot.version, 1);
+    assert.equal(snapshot.theme, 'dark');
+
+    const legacyApplied = model.applyViewSettings(data, darkApplied.states, '', model.parseViewSettings({ version: 1 }), 'dark');
+    assert.equal(legacyApplied.theme, 'dark');
+    assert.throws(function () {
+      model.parseViewSettings({ version: 1, theme: 'auto' });
+    }, '$.theme: ожидалось light или dark');
+
+    const invalidTargetPatch = model.parseViewSettings({ theme: 'light', tables: [
+      { index: 0, columns: [{ id: 'value', visible: false }, { index: 0, width: 200 }] }
+    ] });
+    assert.throws(function () {
+      model.applyViewSettings(data, darkApplied.states, '', invalidTargetPatch, darkApplied.theme);
+    }, 'настройки указывают на уже настроенную колонку');
+    assert.equal(darkApplied.theme, 'dark');
+    assert.isFalse(!!darkApplied.states[0].hiddenColumns[0]);
+  });
+
   it('отклоняет пустые и повторяющиеся идентификаторы данных', function () {
     assert.throws(function () {
       model.parseData({ tables: [

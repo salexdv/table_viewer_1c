@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Тёмная тема и API переключения
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16

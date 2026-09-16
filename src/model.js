@@ -245,11 +245,15 @@ function parseTableSettingsPatch(source, path) {
 
 function parseViewSettingsObject(source, path) {
   if (!isObject(source)) fail(path, 'ожидался объект');
-  validateKnownFields(source, { version: true, globalFilter: true, tables: true }, path);
+  validateKnownFields(source, { version: true, theme: true, globalFilter: true, tables: true }, path);
   var result = {};
   if (hasOwn(source, 'version')) {
     if (source.version !== 1) fail(path + '.version', 'поддерживается только версия 1');
     result.version = 1;
+  }
+  if (hasOwn(source, 'theme')) {
+    if (source.theme !== 'light' && source.theme !== 'dark') fail(path + '.theme', 'ожидалось light или dark');
+    result.theme = source.theme;
   }
   if (hasOwn(source, 'globalFilter')) {
     if (typeof source.globalFilter !== 'string') fail(path + '.globalFilter', 'ожидалась строка');
@@ -991,11 +995,13 @@ function applyPinnedRows(table, state, references, path, warnings) {
   state.pinnedRows = missing ? [] : resolved;
 }
 
-function applyViewSettings(data, states, globalFilter, settings) {
+function applyViewSettings(data, states, globalFilter, settings, theme) {
   var nextStates = states.map(cloneTableState);
   var nextGlobalFilter = globalFilter;
+  var nextTheme = theme === 'dark' ? 'dark' : 'light';
   var warnings = [];
   var filtersChanged = Object.create(null);
+  if (hasOwn(settings, 'theme')) nextTheme = settings.theme;
   if (hasOwn(settings, 'globalFilter')) {
     nextGlobalFilter = settings.globalFilter;
     for (var globalIndex = 0; globalIndex < nextStates.length; globalIndex += 1) filtersChanged[globalIndex] = true;
@@ -1055,15 +1061,15 @@ function applyViewSettings(data, states, globalFilter, settings) {
     nextStates[filterTableIndex].rowWindow = null;
     nextStates[filterTableIndex].hiddenRows = {};
   }
-  return { states: nextStates, globalFilter: nextGlobalFilter, warnings: warnings };
+  return { states: nextStates, globalFilter: nextGlobalFilter, theme: nextTheme, warnings: warnings };
 }
 
 function valueFilterSnapshot(filter) {
   return filter === null ? null : Object.keys(filter);
 }
 
-function getViewSettings(data, states, globalFilter) {
-  var result = { version: 1, globalFilter: globalFilter, tables: [] };
+function getViewSettings(data, states, globalFilter, theme) {
+  var result = { version: 1, theme: theme === 'dark' ? 'dark' : 'light', globalFilter: globalFilter, tables: [] };
   for (var tableIndex = 0; tableIndex < data.tables.length; tableIndex += 1) {
     var table = data.tables[tableIndex];
     var state = states[tableIndex];

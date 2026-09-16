@@ -185,6 +185,22 @@ function cancelFrame(frame) {
   else window.clearTimeout(frame);
 }
 
+function iconPath(iconName) {
+  if (iconName === 'expand-all') return 'M2.5 2.5 8 7l5.5-4.5M2.5 8.5 8 13l5.5-4.5';
+  if (iconName === 'collapse-all') return 'M2.5 7.5 8 3l5.5 4.5M2.5 13.5 8 9l5.5 4.5';
+  if (iconName === 'wrap-text') return 'M2 3h12M2 7h8M2 11h6M14 6v3a2 2 0 0 1-2 2H9m2-2-2 2 2 2';
+  if (iconName === 'theme-dark') return 'M10.5 2.5a5.5 5.5 0 1 0 3 9 5.7 5.7 0 0 1-3-9z';
+  if (iconName === 'theme-light') return 'M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM8 1v1M8 14v1M1 8h1M14 8h1M3 3l1 1M12 12l1 1M13 3l-1 1M4 12l-1 1';
+  return iconName === 'expand-tree'
+    ? 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M10.5 4.5v3M7 11h7'
+    : 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M7 11h7';
+}
+
+function setButtonIcon(button, iconName) {
+  var path = button && button.querySelector('path');
+  if (path) path.setAttribute('d', iconPath(iconName));
+}
+
 function addIconButton(parent, iconName, label, onClick, className) {
   var button = addButton(parent, '', label, onClick, className || 'icon-button');
   button.setAttribute('aria-label', label);
@@ -194,14 +210,7 @@ function addIconButton(parent, iconName, label, onClick, className) {
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  if (iconName === 'expand-all') path.setAttribute('d', 'M2.5 2.5 8 7l5.5-4.5M2.5 8.5 8 13l5.5-4.5');
-  else if (iconName === 'collapse-all') path.setAttribute('d', 'M2.5 7.5 8 3l5.5 4.5M2.5 13.5 8 9l5.5 4.5');
-  else if (iconName === 'wrap-text') path.setAttribute('d', 'M2 3h12M2 7h8M2 11h6M14 6v3a2 2 0 0 1-2 2H9m2-2-2 2 2 2');
-  else {
-    path.setAttribute('d', iconName === 'expand-tree'
-      ? 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M10.5 4.5v3M7 11h7'
-      : 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M7 11h7');
-  }
+  path.setAttribute('d', iconPath(iconName));
   svg.appendChild(path);
   button.appendChild(svg);
   return button;
@@ -320,6 +329,8 @@ function ViewerApp(root) {
   this.selectionButton = null;
   this.wrapText = false;
   this.wrapTextButton = null;
+  this.theme = 'light';
+  this.themeButton = null;
   this.customContextMenuItems = [];
   this.displaySettings = model.makeDisplaySettings();
   this.onDocumentMouseUp = this.stopSelection.bind(this);
@@ -349,19 +360,23 @@ ViewerApp.prototype.load = function (input) {
     var nextData = model.parseData(source);
     var nextStates = nextData.tables.map(model.makeTableState);
     var nextGlobalFilter = '';
+    var nextTheme = 'light';
     var applied = null;
     if (nextData.settings) {
-      applied = model.applyViewSettings(nextData, nextStates, nextGlobalFilter, nextData.settings);
+      applied = model.applyViewSettings(nextData, nextStates, nextGlobalFilter, nextData.settings, nextTheme);
       nextStates = applied.states;
       nextGlobalFilter = applied.globalFilter;
+      nextTheme = applied.theme;
     }
     if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
     this.globalSearchTimer = null;
     this.data = nextData;
     this.states = nextStates;
     this.globalFilter = nextGlobalFilter;
+    this.theme = nextTheme;
     this.selectionResults = null;
     if (applied) this.reportSettingsWarnings(applied.warnings);
+    this.applyTheme();
     this.render();
     return true;
   } catch (error) {
@@ -376,13 +391,13 @@ ViewerApp.prototype.reportSettingsWarnings = function (warnings) {
 };
 
 ViewerApp.prototype.getSettings = function () {
-  return JSON.stringify(model.getViewSettings(this.data, this.states, this.globalFilter));
+  return JSON.stringify(model.getViewSettings(this.data, this.states, this.globalFilter, this.theme));
 };
 
 ViewerApp.prototype.setSettings = function (input) {
   try {
     var settings = model.parseViewSettings(input);
-    var applied = model.applyViewSettings(this.data, this.states, this.globalFilter, settings);
+    var applied = model.applyViewSettings(this.data, this.states, this.globalFilter, settings, this.theme);
     for (var index = 0; index < applied.states.length; index += 1) applied.states[index].selection = null;
     this.closeMenu();
     this.closeColumnPanel();
@@ -392,9 +407,11 @@ ViewerApp.prototype.setSettings = function (input) {
     this.globalSearchTimer = null;
     this.states = applied.states;
     this.globalFilter = applied.globalFilter;
+    this.theme = applied.theme;
     this.draggingView = null;
     this.selectionResults = null;
     this.reportSettingsWarnings(applied.warnings);
+    this.applyTheme();
     this.render();
     return true;
   } catch (error) {
@@ -450,6 +467,12 @@ ViewerApp.prototype.render = function () {
   this.wrapTextButton.setAttribute('aria-pressed', this.wrapText ? 'true' : 'false');
   setClass(this.root, 'text-wrapping', this.wrapText);
   commands.appendChild(wrapTextGroup);
+  var themeGroup = element('div', 'toolbar-group toolbar-theme-group');
+  this.themeButton = addIconButton(themeGroup, 'theme-dark', 'Включить тёмную тему', function () {
+    self.setTheme(self.theme === 'dark' ? 'light' : 'dark');
+  }, 'icon-button command-icon-button theme-button');
+  commands.appendChild(themeGroup);
+  this.updateThemeButton();
   var globalGroup = element('div', 'toolbar-group toolbar-global-group');
   addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
   addIconButton(globalGroup, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
@@ -490,6 +513,28 @@ ViewerApp.prototype.toggleTextWrapping = function () {
   if (this.wrapTextButton) this.wrapTextButton.setAttribute('aria-pressed', this.wrapText ? 'true' : 'false');
   for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].setTextWrapping(anchors[viewIndex]);
   this.scheduleTableLayouts();
+};
+
+ViewerApp.prototype.updateThemeButton = function () {
+  if (!this.themeButton) return;
+  var dark = this.theme === 'dark';
+  var label = dark ? 'Включить светлую тему' : 'Включить тёмную тему';
+  this.themeButton.title = label;
+  this.themeButton.setAttribute('aria-label', label);
+  this.themeButton.setAttribute('aria-pressed', dark ? 'true' : 'false');
+  setButtonIcon(this.themeButton, dark ? 'theme-light' : 'theme-dark');
+};
+
+ViewerApp.prototype.applyTheme = function () {
+  setClass(document.documentElement, 'theme-dark', this.theme === 'dark');
+  this.updateThemeButton();
+};
+
+ViewerApp.prototype.setTheme = function (theme) {
+  if (theme !== 'light' && theme !== 'dark') return false;
+  this.theme = theme;
+  this.applyTheme();
+  return true;
 };
 
 ViewerApp.prototype.refreshTables = function () {
@@ -1014,7 +1059,8 @@ ViewerApp.prototype.destroy = function () {
   window.removeEventListener('scroll', this.onWindowScroll);
   this.cancelPageScrollbar();
   this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy();
-  this.wrapText = false; this.wrapTextButton = null; setClass(this.root, 'text-wrapping', false); clear(this.root);
+  this.wrapText = false; this.wrapTextButton = null; this.theme = 'light'; this.themeButton = null;
+  setClass(this.root, 'text-wrapping', false); setClass(document.documentElement, 'theme-dark', false); clear(this.root);
 };
 
 function TableView(app, table, state, tableIndex) {
@@ -1659,6 +1705,7 @@ function installPublicApi() {
   window.setData = function (data) { if (!currentApp) return window.init(data); return currentApp.load(data); };
   window.getSettings = function () { return currentApp ? currentApp.getSettings() : false; };
   window.setSettings = function (settings) { return currentApp ? currentApp.setSettings(settings) : false; };
+  window.setTheme = function (theme) { return currentApp ? currentApp.setTheme(theme) : false; };
   window.setTableCollapsed = function (tableIndex, collapsed) { return currentApp ? currentApp.setTableCollapsed(Number(tableIndex), collapsed) : false; };
   window.setTreeExpanded = function (tableIndex, expanded) { return currentApp ? currentApp.setTreeExpanded(Number(tableIndex), expanded) : false; };
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };

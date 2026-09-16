@@ -126,8 +126,8 @@ async function main() {
     const commandButtons = await page.$$eval('.command-icon-button, .tree-command-button', function (nodes) {
       return nodes.map(function (node) { return { text: node.textContent, title: node.title, label: node.getAttribute('aria-label'), icons: node.querySelectorAll('svg[aria-hidden="true"]').length }; });
     });
-    assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '', '']);
-    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Переносить текст', 'Свернуть все', 'Развернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '', '', '']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Переносить текст', 'Включить тёмную тему', 'Свернуть все', 'Развернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
     assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
     assert.deepStrictEqual(await page.$eval('.toolbar-columns-group', function (node) {
       return Array.prototype.map.call(node.children, function (child) { return { text: child.textContent, className: child.className }; });
@@ -136,13 +136,58 @@ async function main() {
     ]);
     assert.strictEqual(await page.$eval('.toolbar-wrap-text-group', function (node) { return node.children.length; }), 1);
     assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
+    assert.strictEqual(await page.$eval('.theme-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
     assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return node.className; }); }), [
       'toolbar-group toolbar-columns-group',
       'toolbar-group toolbar-wrap-text-group',
+      'toolbar-group toolbar-theme-group',
       'toolbar-group toolbar-global-group',
       'toolbar-group toolbar-selection-group'
     ]);
-    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return getComputedStyle(node).borderLeftWidth; }); }), ['0px', '1px', '1px', '1px']);
+    assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return getComputedStyle(node).borderLeftWidth; }); }), ['0px', '1px', '1px', '1px', '1px']);
+    const lightThemeColors = await page.evaluate(function () {
+      return {
+        body: getComputedStyle(document.body).backgroundColor,
+        toolbar: getComputedStyle(document.querySelector('.global-toolbar')).backgroundColor,
+        card: getComputedStyle(document.querySelector('.table-card')).backgroundColor,
+        header: getComputedStyle(document.querySelector('.header-row')).backgroundColor,
+        row: getComputedStyle(document.querySelector('.data-row')).backgroundColor
+      };
+    });
+    assert.strictEqual(await page.evaluate(function () { return window.setTheme('dark'); }), true);
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') !== -1; }), true);
+    assert.deepStrictEqual(await page.$eval('.theme-button', function (node) {
+      return { pressed: node.getAttribute('aria-pressed'), title: node.title, label: node.getAttribute('aria-label') };
+    }), { pressed: 'true', title: 'Включить светлую тему', label: 'Включить светлую тему' });
+    const darkThemeColors = await page.evaluate(function () {
+      return {
+        body: getComputedStyle(document.body).backgroundColor,
+        toolbar: getComputedStyle(document.querySelector('.global-toolbar')).backgroundColor,
+        card: getComputedStyle(document.querySelector('.table-card')).backgroundColor,
+        header: getComputedStyle(document.querySelector('.header-row')).backgroundColor,
+        row: getComputedStyle(document.querySelector('.data-row')).backgroundColor
+      };
+    });
+    Object.keys(lightThemeColors).forEach(function (key) {
+      assert.notStrictEqual(darkThemeColors[key], lightThemeColors[key], 'Тёмная тема должна менять цвет: ' + key);
+    });
+    await page.click('.selection-aggregate-button');
+    assert.strictEqual(await page.$eval('.selection-aggregates-popup', function (node) { return getComputedStyle(node).backgroundColor; }), 'rgb(32, 40, 50)');
+    await page.keyboard.press('Escape');
+    await page.click('.toolbar-columns-group .button');
+    assert.strictEqual(await page.$eval('.column-panel', function (node) { return getComputedStyle(node).backgroundColor; }), 'rgb(32, 40, 50)');
+    await page.keyboard.press('Escape');
+    await page.click('.value-filter-button');
+    assert.strictEqual(await page.$eval('.value-filter-panel', function (node) { return getComputedStyle(node).backgroundColor; }), 'rgb(32, 40, 50)');
+    await page.keyboard.press('Escape');
+    await page.click('.data-cell', { button: 'right' });
+    assert.strictEqual(await page.$eval('body > .context-menu', function (node) { return getComputedStyle(node).backgroundColor; }), 'rgb(32, 40, 50)');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.evaluate(function () { return window.setTheme('auto'); }), false);
+    assert.strictEqual(await page.$eval('.theme-button', function (node) { return node.getAttribute('aria-pressed'); }), 'true');
+    await page.click('.theme-button');
+    assert.strictEqual(await page.$eval('.theme-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') === -1; }), true);
     const desktopToolbar = await page.$eval('.global-toolbar', function (node) {
       return { toolbar: node.getBoundingClientRect().width, search: node.querySelector('.global-search').getBoundingClientRect().width };
     });
@@ -973,6 +1018,7 @@ async function main() {
         }],
         settings: {
           version: 1,
+          theme: 'dark',
           globalFilter: 'моск',
           tables: [{
             id: 'metrics',
@@ -989,6 +1035,7 @@ async function main() {
         }
       });
     }), true);
+    assert.strictEqual(await page.$eval('.theme-button', function (node) { return node.getAttribute('aria-pressed'); }), 'true');
     assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
     assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '120%');
     assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
@@ -1005,6 +1052,7 @@ async function main() {
     });
     assert.strictEqual(settingsSnapshot.type, 'string');
     assert.strictEqual(settingsSnapshot.value.version, 1);
+    assert.strictEqual(settingsSnapshot.value.theme, 'dark');
     assert.strictEqual(settingsSnapshot.value.tables[0].id, 'metrics');
     assert.deepStrictEqual(settingsSnapshot.value.tables[0].columnOrder, ['amount', 'city', 'comment']);
     assert.deepStrictEqual(settingsSnapshot.value.tables[0].pinnedColumns, ['amount']);
@@ -1022,6 +1070,7 @@ async function main() {
         ] }]
       }));
     }), true);
+    assert.strictEqual(await page.$eval('.theme-button', function (node) { return node.getAttribute('aria-pressed'); }), 'true', 'Patch без theme должен сохранять тему');
     assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '150%');
     assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
       return nodes.map(function (node) { return node.textContent; });
@@ -1040,16 +1089,21 @@ async function main() {
     const errorsBeforeValidation = errors.length;
     assert.strictEqual(await page.evaluate(function () { return window.setData('{"tables":[],}'); }), false);
     assert.ok(await page.$('.error-box'));
+    assert.deepStrictEqual(await page.$eval('.error-box', function (node) {
+      var style = getComputedStyle(node); return { color: style.color, background: style.backgroundColor };
+    }), { color: 'rgb(255, 180, 188)', background: 'rgb(58, 32, 38)' });
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') !== -1; }), true, 'Ошибка setData не должна менять тему');
     assert.strictEqual(errors.length, errorsBeforeValidation + 1);
     errors.splice(errorsBeforeValidation, 1);
     assert.strictEqual(await page.evaluate(function () { return window.setData({ tables: [] }); }), true);
     assert.ok(await page.$('.empty-state'));
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') === -1; }), true, 'setData без settings должен вернуть светлую тему');
 
     assert.strictEqual(await page.evaluate(function () {
       window.dispatchEvent(new Event('scroll'));
       return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1;
     }), true);
-    assert.strictEqual(await page.evaluate(function () { return window.destroy(); }), true);
+    assert.strictEqual(await page.evaluate(function () { window.setTheme('dark'); return window.destroy(); }), true);
     assert.strictEqual(await page.evaluate(function () { return window.addContextMenuItem('После destroy', 'EVENT_AFTER_DESTROY'); }), false);
     assert.deepStrictEqual(await page.evaluate(function () {
       return [
@@ -1059,10 +1113,12 @@ async function main() {
         window.setShowEmptyReferences(true),
         window.setEmptyReferenceColor('gray'),
         window.getSettings(),
-        window.setSettings({})
+        window.setSettings({}),
+        window.setTheme('dark')
       ];
-    }), [false, false, false, false, false, false, false]);
+    }), [false, false, false, false, false, false, false, false]);
     assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
+    assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') === -1; }), true, 'destroy должен вернуть светлую тему');
 
     assert.deepStrictEqual(errors, []);
     console.log('[browser] Smoke-тест пройден');
