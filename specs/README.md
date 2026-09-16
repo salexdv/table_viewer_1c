@@ -36,5 +36,7 @@
   команды дерева, правое выравнивание чисел и popup агрегатов выделения.
 - [`search-highlighting-and-clear`](done/search-highlighting-and-clear/spec.md) — поиск по упорядоченным фрагментам,
   подсветка совпадений и совместимые с WebKit 1С кнопки очистки.
+- [`view-settings-api`](done/view-settings-api/spec.md) — JSON/API сохранения и восстановления масштаба,
+  порядка и параметров колонок и всех фильтров.
 - [`cell-display-customization`](done/cell-display-customization/spec.md) — настройка представления и цвета точных
   значений, отрицательных чисел и пустых ссылок.
