@@ -42,3 +42,4 @@
   значений, отрицательных чисел и пустых ссылок.
 - [`cell-text-wrapping`](done/cell-text-wrapping/spec.md) — глобальный перенос значений и виртуализация строк
   переменной высоты.
+- [`wrap-text-toolbar-group`](done/wrap-text-toolbar-group/spec.md) — отдельная группа кнопки переноса текста.
