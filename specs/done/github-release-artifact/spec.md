@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Публикация HTML-сборки в GitHub Release
-status: in-progress
+status: done
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16
@@ -54,14 +54,14 @@ Production-сборка проекта создаёт автономный `dist
 
 ## 5. Критерии приёмки
 
-- [ ] Workflow запускается для события `release.published` и вручную через `workflow_dispatch`.
-- [ ] Workflow использует Node.js 20, `npm ci` и `npm run build`.
-- [ ] При релизном запуске `table_viewer.html` загружается в указанный GitHub Release с заменой существующего
+- [x] Workflow запускается для события `release.published` и вручную через `workflow_dispatch`.
+- [x] Workflow использует Node.js 20, `npm ci` и `npm run build`.
+- [x] При релизном запуске `table_viewer.html` загружается в указанный GitHub Release с заменой существующего
   одноимённого asset.
-- [ ] При ручном запуске `table_viewer.html` доступен как Actions Artifact `table_viewer-html`, а релизы не
+- [x] При ручном запуске `table_viewer.html` доступен как Actions Artifact `table_viewer-html`, а релизы не
   изменяются.
-- [ ] README описывает готовый release asset и ручной проверочный запуск.
-- [ ] Локальная production-сборка и её проверки проходят.
+- [x] README описывает готовый release asset и ручной проверочный запуск.
+- [x] Локальная production-сборка и её проверки проходят.
 
 ## 6. Вне области
 

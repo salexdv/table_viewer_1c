@@ -43,3 +43,5 @@
 - [`cell-text-wrapping`](done/cell-text-wrapping/spec.md) — глобальный перенос значений и виртуализация строк
   переменной высоты.
 - [`wrap-text-toolbar-group`](done/wrap-text-toolbar-group/spec.md) — отдельная группа кнопки переноса текста.
+- [`github-release-artifact`](done/github-release-artifact/spec.md) — автоматическая публикация автономного
+  HTML в GitHub Release и Actions Artifacts.
