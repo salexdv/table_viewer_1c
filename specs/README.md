@@ -49,3 +49,5 @@
   HTML в GitHub Release и Actions Artifacts.
 - [`semantic-github-releases`](done/semantic-github-releases/spec.md) — SemVer-релизы через Release Please с
   публикацией автономного HTML и тестовой обработки EPF.
+- [`dark-theme`](done/dark-theme/spec.md) — светлая и тёмная палитры, кнопка и API переключения с сохранением
+  темы в Settings.
