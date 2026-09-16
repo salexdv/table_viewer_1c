@@ -36,6 +36,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .button-primary:hover { color: #fff; background: #236fd3; }
 .button-small { min-height: 24px; padding: 2px 7px; font-size: 11px; }
 .command-icon-button { width: 30px; height: 30px; }
+.wrap-text-button[aria-pressed="true"] { border-color: #6f98c9; background: #dceafd; box-shadow: inset 0 2px 4px rgba(39, 78, 125, 0.28); }
 .tree-command-group { gap: 8px; }
 .icon-button.tree-command-button { width: 30px; height: 28px; min-height: 28px; }
 .tree-command-button .button-icon { width: 18px; height: 18px; }
@@ -81,6 +82,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .data-row:nth-child(even) { background: #f8fbfe; }
 .data-row:hover { background: #edf5ff; }
 .data-cell { -webkit-box-flex: 0; flex: none; color: #314157; -webkit-user-select: none; user-select: none; }
+.text-wrapping .data-row .data-cell { text-overflow: clip; white-space: normal; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; }
 .numeric-cell { text-align: right; }
 .cell-link { color: #2f7ee8; text-decoration: none; }
 .cell-link:hover { text-decoration: underline; }

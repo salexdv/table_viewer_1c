@@ -196,6 +196,7 @@ function addIconButton(parent, iconName, label, onClick, className) {
   var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   if (iconName === 'expand-all') path.setAttribute('d', 'M2.5 2.5 8 7l5.5-4.5M2.5 8.5 8 13l5.5-4.5');
   else if (iconName === 'collapse-all') path.setAttribute('d', 'M2.5 7.5 8 3l5.5 4.5M2.5 13.5 8 9l5.5 4.5');
+  else if (iconName === 'wrap-text') path.setAttribute('d', 'M2 3h12M2 7h8M2 11h6M14 6v3a2 2 0 0 1-2 2H9m2-2-2 2 2 2');
   else {
     path.setAttribute('d', iconName === 'expand-tree'
       ? 'M2 2v12M2 5h4M2 11h4M7 2.5h7v7H7zM9 6h3M10.5 4.5v3M7 11h7'
@@ -214,6 +215,18 @@ function arrayIndex(array, value) {
 function removeValue(array, value) {
   var index = arrayIndex(array, value);
   if (index !== -1) array.splice(index, 1);
+}
+
+function offsetIndex(offsets, value) {
+  var count = offsets.length - 1;
+  if (count <= 0) return 0;
+  var low = 0; var high = count;
+  while (low < high) {
+    var middle = Math.floor((low + high) / 2);
+    if (offsets[middle + 1] <= value) low = middle + 1;
+    else high = middle;
+  }
+  return Math.min(low, count - 1);
 }
 
 function aggregateLabel(value) {
@@ -305,6 +318,8 @@ function ViewerApp(root) {
   this.selectionResults = null;
   this.selectionPopup = null;
   this.selectionButton = null;
+  this.wrapText = false;
+  this.wrapTextButton = null;
   this.customContextMenuItems = [];
   this.displaySettings = model.makeDisplaySettings();
   this.onDocumentMouseUp = this.stopSelection.bind(this);
@@ -427,6 +442,11 @@ ViewerApp.prototype.render = function () {
     event.stopPropagation();
     self.toggleColumnPanel(columnsButton);
   });
+  this.wrapTextButton = addIconButton(columnsGroup, 'wrap-text', 'Переносить текст', function () {
+    self.toggleTextWrapping();
+  }, 'icon-button command-icon-button wrap-text-button');
+  this.wrapTextButton.setAttribute('aria-pressed', this.wrapText ? 'true' : 'false');
+  setClass(this.root, 'text-wrapping', this.wrapText);
   commands.appendChild(columnsGroup);
   var globalGroup = element('div', 'toolbar-group toolbar-global-group');
   addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
@@ -460,6 +480,16 @@ ViewerApp.prototype.render = function () {
   this.updateTableLayouts();
 };
 
+ViewerApp.prototype.toggleTextWrapping = function () {
+  var anchors = [];
+  for (var index = 0; index < this.tableViews.length; index += 1) anchors.push(this.tableViews[index].captureScrollAnchor());
+  this.wrapText = !this.wrapText;
+  setClass(this.root, 'text-wrapping', this.wrapText);
+  if (this.wrapTextButton) this.wrapTextButton.setAttribute('aria-pressed', this.wrapText ? 'true' : 'false');
+  for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].setTextWrapping(anchors[viewIndex]);
+  this.scheduleTableLayouts();
+};
+
 ViewerApp.prototype.refreshTables = function () {
   for (var index = 0; index < this.tableViews.length; index += 1) this.tableViews[index].refreshData();
   var visible = 0;
@@ -487,9 +517,9 @@ ViewerApp.prototype.updateTableLayouts = function () {
   for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) {
     var view = this.tableViews[viewIndex];
     if (view.card.style.display === 'none' || view.state.collapsed || !view.viewport) continue;
-    view.applyHeight(visible === 1);
     view.applyWidths();
     view.renderVirtualRows();
+    view.applyHeight(visible === 1);
   }
   this.positionSelectionPopup();
 };
@@ -974,15 +1004,96 @@ ViewerApp.prototype.destroy = function () {
   window.removeEventListener('resize', this.onWindowResize);
   window.removeEventListener('scroll', this.onWindowScroll);
   this.cancelPageScrollbar();
-  this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy(); clear(this.root);
+  this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy();
+  this.wrapText = false; this.wrapTextButton = null; setClass(this.root, 'text-wrapping', false); clear(this.root);
 };
 
 function TableView(app, table, state, tableIndex) {
   this.app = app; this.table = table; this.state = state; this.tableIndex = tableIndex;
   this.allVisibleRows = []; this.visibleRows = []; this.visibleColumns = []; this.bodyEntries = []; this.pinnedEntries = [];
   this.hiddenBefore = 0; this.hiddenAfter = 0; this.filterButtons = {};
-  this.rowHeight = 26; this.scrollFrame = null; this.scrollbarTimer = null; this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1; this.card = this.createCard();
+  this.rowHeight = 26; this.scrollFrame = null; this.scrollbarTimer = null; this.virtualRows = []; this.virtualStart = -1; this.virtualEnd = -1;
+  this.rowHeights = []; this.rowOffsets = [0]; this.pinnedHeight = 0; this.pendingScrollAnchor = null; this.bottomAnchored = false; this.card = this.createCard();
 }
+
+TableView.prototype.fixedBodyTop = function () {
+  return this.rowHeight * (2 + (this.hiddenBefore ? 1 : 0)) + this.pinnedHeight;
+};
+
+TableView.prototype.bodyOffset = function (index) {
+  if (this.app.wrapText && this.rowOffsets.length === this.bodyEntries.length + 1) return this.rowOffsets[index] || 0;
+  return index * this.rowHeight;
+};
+
+TableView.prototype.captureScrollAnchor = function () {
+  if (!this.viewport || !this.bodyEntries.length) return null;
+  var fixedTop = this.fixedBodyTop();
+  if (this.viewport.scrollTop < fixedTop) return { beforeBody: true, scrollTop: this.viewport.scrollTop };
+  var relativeTop = this.viewport.scrollTop - fixedTop;
+  var index = this.app.wrapText && this.rowOffsets.length === this.bodyEntries.length + 1
+    ? offsetIndex(this.rowOffsets, relativeTop)
+    : Math.min(this.bodyEntries.length - 1, Math.floor(relativeTop / this.rowHeight));
+  return { index: index, offset: Math.max(0, relativeTop - this.bodyOffset(index)) };
+};
+
+TableView.prototype.restoreScrollAnchor = function (anchor) {
+  if (!anchor || !this.viewport || !this.bodyEntries.length) return;
+  if (anchor.beforeBody) { this.viewport.scrollTop = anchor.scrollTop; return; }
+  var index = Math.max(0, Math.min(this.bodyEntries.length - 1, anchor.index));
+  var height = this.app.wrapText && this.rowHeights[index] ? this.rowHeights[index] : this.rowHeight;
+  this.viewport.scrollTop = this.fixedBodyTop() + this.bodyOffset(index) + Math.min(anchor.offset, Math.max(0, height - 1));
+};
+
+TableView.prototype.rebuildRowOffsets = function () {
+  this.rowOffsets = [0];
+  for (var index = 0; index < this.bodyEntries.length; index += 1) {
+    this.rowOffsets.push(this.rowOffsets[index] + (this.rowHeights[index] || this.rowHeight));
+  }
+  if (this.body) this.body.style.height = this.rowOffsets[this.rowOffsets.length - 1] + 'px';
+};
+
+TableView.prototype.resetRowMeasurements = function (anchor) {
+  this.rowHeights = [];
+  for (var index = 0; index < this.bodyEntries.length; index += 1) this.rowHeights.push(this.rowHeight);
+  this.rebuildRowOffsets();
+  this.virtualStart = -1;
+  this.virtualEnd = -1;
+  this.pendingScrollAnchor = anchor || null;
+  this.restoreScrollAnchor(this.pendingScrollAnchor);
+};
+
+TableView.prototype.applyDataRowHeight = function (row) {
+  if (this.app.wrapText) {
+    row.style.height = 'auto';
+    row.style.minHeight = this.rowHeight + 'px';
+  } else {
+    row.style.height = this.rowHeight + 'px';
+    row.style.minHeight = '';
+  }
+};
+
+TableView.prototype.measurePinnedRows = function () {
+  if (!this.pinnedHost) return;
+  if (!this.app.wrapText) {
+    this.pinnedHeight = this.pinnedEntries.length * this.rowHeight;
+    return;
+  }
+  var rows = this.pinnedHost.querySelectorAll('.pinned-row'); var height = 0;
+  for (var index = 0; index < rows.length; index += 1) height += Math.max(this.rowHeight, rows[index].offsetHeight);
+  this.pinnedHeight = height;
+};
+
+TableView.prototype.setTextWrapping = function (anchor) {
+  if (!this.body) return;
+  var rows = this.content.querySelectorAll('.data-row');
+  for (var index = 0; index < rows.length; index += 1) this.applyDataRowHeight(rows[index]);
+  this.resetRowMeasurements(anchor);
+  this.measurePinnedRows();
+  this.updateStickyPositions();
+  this.restoreScrollAnchor(this.pendingScrollAnchor);
+  if (!this.app.wrapText) this.pendingScrollAnchor = null;
+  this.renderVirtualRows(true);
+};
 
 TableView.prototype.createCard = function () {
   var self = this;
@@ -1114,7 +1225,7 @@ TableView.prototype.onGridContextMenu = function (event) {
 };
 
 TableView.prototype.renderGrid = function () {
-  var self = this; var oldTop = this.viewport ? this.viewport.scrollTop : 0; var oldLeft = this.viewport ? this.viewport.scrollLeft : 0;
+  var self = this; var anchor = this.captureScrollAnchor(); var oldTop = this.viewport ? this.viewport.scrollTop : 0; var oldLeft = this.viewport ? this.viewport.scrollLeft : 0;
   this.cancelScheduledRender();
   clear(this.gridHost); this.filterButtons = {}; this.layout = this.getColumnLayout(); this.rowHeight = Math.max(20, Math.round(26 * this.state.scale / 100));
   this.viewport = element('div', 'grid-viewport'); this.viewport.setAttribute('role', 'grid'); this.viewport.setAttribute('aria-label', this.table.name);
@@ -1163,10 +1274,12 @@ TableView.prototype.renderGrid = function () {
   this.footer = element('div', 'grid-row totals-row'); this.footer.setAttribute('role', 'row'); this.content.appendChild(this.footer);
   this.viewport.addEventListener('scroll', function () {
     self.activateScrollbar();
-    if (self.scrollFrame !== null) return;
-    self.scrollFrame = requestFrame(function () { self.scrollFrame = null; self.renderVirtualRows(); });
+    self.bottomAnchored = self.viewport.scrollTop + self.viewport.clientHeight >= self.viewport.scrollHeight - 1;
+    self.scheduleVirtualRows();
   });
-  this.refreshData(); this.updateFilterButtons(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft; this.renderVirtualRows();
+  this.refreshData(); this.updateFilterButtons(); this.viewport.scrollTop = oldTop; this.viewport.scrollLeft = oldLeft;
+  if (anchor) { this.pendingScrollAnchor = anchor; this.restoreScrollAnchor(anchor); if (!this.app.wrapText) this.pendingScrollAnchor = null; }
+  this.renderVirtualRows(true);
 };
 
 TableView.prototype.activateScrollbar = function () {
@@ -1218,7 +1331,14 @@ TableView.prototype.beginNumberResize = function (event) {
 
 TableView.prototype.applyWidths = function () {
   if (!this.viewport || !this.content) return;
-  this.layout = this.getColumnLayout(this.viewport.clientWidth || 0); this.content.style.width = this.layout.totalWidth + 'px';
+  var anchor = this.app.wrapText ? this.captureScrollAnchor() : null;
+  var previous = this.layout; var next = this.getColumnLayout(this.viewport.clientWidth || 0); var geometryChanged = !previous || previous.numberWidth !== next.numberWidth || previous.columns.length !== next.columns.length;
+  if (!geometryChanged) {
+    for (var layoutIndex = 0; layoutIndex < next.columns.length; layoutIndex += 1) {
+      if (previous.columns[layoutIndex].modelIndex !== next.columns[layoutIndex].modelIndex || previous.columns[layoutIndex].width !== next.columns[layoutIndex].width || previous.columns[layoutIndex].left !== next.columns[layoutIndex].left) { geometryChanged = true; break; }
+    }
+  }
+  this.layout = next; this.content.style.width = this.layout.totalWidth + 'px';
   var numberCells = this.content.querySelectorAll('.number-cell');
   for (var numberIndex = 0; numberIndex < numberCells.length; numberIndex += 1) {
     var numberCell = numberCells[numberIndex]; numberCell.style.width = this.layout.numberWidth + 'px'; numberCell.style.minWidth = this.layout.numberWidth + 'px'; numberCell.style.maxWidth = this.layout.numberWidth + 'px';
@@ -1233,22 +1353,32 @@ TableView.prototype.applyWidths = function () {
     var layout = this.layout.columns[index]; var cells = this.content.querySelectorAll('[data-column="' + layout.modelIndex + '"]');
     for (var cellIndex = 0; cellIndex < cells.length; cellIndex += 1) { cells[cellIndex].style.width = layout.width + 'px'; cells[cellIndex].style.minWidth = layout.width + 'px'; cells[cellIndex].style.maxWidth = layout.width + 'px'; if (layout.pinned) cells[cellIndex].style.left = layout.left + 'px'; }
   }
+  if (this.app.wrapText && geometryChanged && this.body) {
+    this.resetRowMeasurements(anchor);
+    this.measurePinnedRows();
+    this.updateStickyPositions();
+    this.restoreScrollAnchor(this.pendingScrollAnchor);
+    this.renderVirtualRows(true);
+    this.app.scheduleTableLayouts();
+  }
 };
 
 TableView.prototype.applyHeight = function (singleVisible) {
   if (!this.viewport) return;
   var markerCount = (this.hiddenBefore ? 1 : 0) + (this.hiddenAfter ? 1 : 0);
-  var fixedRows = 2 + this.pinnedEntries.length + markerCount + (this.hasVisibleColumnAggregates() ? 1 : 0);
   var minimum = 3 * this.rowHeight + 2;
-  var naturalRows = fixedRows + this.bodyEntries.length;
-  var naturalHeight = naturalRows * this.rowHeight + 2;
+  var fixedHeight = this.rowHeight * (2 + markerCount + (this.hasVisibleColumnAggregates() ? 1 : 0)) + this.pinnedHeight;
+  var bodyHeight = this.app.wrapText && this.rowOffsets.length === this.bodyEntries.length + 1 ? this.rowOffsets[this.rowOffsets.length - 1] : this.bodyEntries.length * this.rowHeight;
+  var naturalHeight = fixedHeight + bodyHeight + 2;
   var limit;
   if (singleVisible) {
     var top = this.viewport.getBoundingClientRect().top;
     limit = Math.max(minimum, Math.floor(window.innerHeight - top - 8));
   } else {
     limit = Math.max(240, Math.min(620, Math.round(window.innerHeight * 0.58)));
-    naturalHeight = (fixedRows + Math.min(this.bodyEntries.length, 14)) * this.rowHeight + 2;
+    var previewCount = Math.min(this.bodyEntries.length, 14);
+    var previewHeight = this.app.wrapText && this.rowOffsets.length === this.bodyEntries.length + 1 ? this.rowOffsets[previewCount] : previewCount * this.rowHeight;
+    naturalHeight = fixedHeight + previewHeight + 2;
   }
   this.viewport.style.height = Math.max(minimum, Math.min(naturalHeight, limit)) + 'px';
 };
@@ -1270,13 +1400,13 @@ TableView.prototype.refreshData = function () {
     if (item.kind === 'marker') this.bodyEntries.push({ kind: 'marker', ids: item.ids });
     else if (!pinnedMap[item.row.id]) this.bodyEntries.push({ kind: 'row', entry: item.row, visibleIndex: item.visibleIndex });
   }
-  this.pinnedEntries = pinned; this.resetVirtualRows(); this.body.style.height = this.bodyEntries.length * this.rowHeight + 'px';
+  this.pinnedEntries = pinned; this.resetVirtualRows(); this.resetRowMeasurements(null);
   this.applyHeight(false);
   this.renderPinnedRows(); this.renderRangeMarkers(); this.renderFooter(); this.renderVirtualRows(); this.updateStickyPositions(); this.updateFilterButtons();
   this.app.scheduleTableLayouts();
 };
-TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedEntries.length * this.rowHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.hasVisibleColumnAggregates() ? this.rowHeight + 'px' : '0'; };
-TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); };
+TableView.prototype.updateStickyPositions = function () { this.header.style.top = '0'; this.filterRow.style.top = this.rowHeight + 'px'; this.pinnedHost.style.top = this.rowHeight * 2 + 'px'; this.pinnedHost.style.height = this.pinnedHeight + 'px'; this.beforeMarker.style.height = this.rowHeight + 'px'; this.afterMarker.style.height = this.rowHeight + 'px'; this.footer.style.height = this.hasVisibleColumnAggregates() ? this.rowHeight + 'px' : '0'; };
+TableView.prototype.renderPinnedRows = function () { clear(this.pinnedHost); if (!this.pinnedEntries.length) { this.pinnedHeight = 0; this.pinnedHost.style.display = 'none'; return; } this.pinnedHost.style.display = 'block'; for (var index = 0; index < this.pinnedEntries.length; index += 1) this.pinnedHost.appendChild(this.renderRow(this.pinnedEntries[index].entry, this.pinnedEntries[index].visibleIndex, true)); this.measurePinnedRows(); };
 TableView.prototype.renderRangeMarkers = function () { this.beforeMarker.style.display = this.hiddenBefore ? 'block' : 'none'; this.beforeMarker.textContent = this.hiddenBefore ? 'Показать ' + this.hiddenBefore + ' скрытых строк' : ''; this.afterMarker.style.display = this.hiddenAfter ? 'block' : 'none'; this.afterMarker.textContent = this.hiddenAfter ? 'Показать ' + this.hiddenAfter + ' скрытых строк' : ''; };
 
 TableView.prototype.resetRowRanges = function () {
@@ -1350,7 +1480,39 @@ TableView.prototype.updateHiddenMarker = function (marker, ids) {
   marker.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px';
 };
 
-TableView.prototype.renderVirtualRows = function () {
+TableView.prototype.measureVirtualRows = function () {
+  if (!this.app.wrapText) return false;
+  var changed = false; var viewport = this.viewport;
+  var atBottom = this.bottomAnchored || viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 1;
+  var anchor = this.pendingScrollAnchor || this.captureScrollAnchor();
+  for (var index = 0; index < this.virtualRows.length; index += 1) {
+    var item = this.virtualRows[index];
+    if (item.kind !== 'row') continue;
+    var height = Math.max(this.rowHeight, Math.ceil(item.node.getBoundingClientRect().height));
+    if (this.rowHeights[item.index] !== height) { this.rowHeights[item.index] = height; changed = true; }
+  }
+  if (changed) {
+    this.rebuildRowOffsets();
+    for (var rowIndex = 0; rowIndex < this.virtualRows.length; rowIndex += 1) {
+      this.virtualRows[rowIndex].node.style.top = this.bodyOffset(this.virtualRows[rowIndex].index) + 'px';
+    }
+    if (atBottom) { this.bottomAnchored = true; viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight); }
+    else this.restoreScrollAnchor(anchor);
+  }
+  if (this.pendingScrollAnchor) {
+    if (!changed) this.restoreScrollAnchor(this.pendingScrollAnchor);
+    this.pendingScrollAnchor = null;
+  }
+  return changed;
+};
+
+TableView.prototype.scheduleVirtualRows = function () {
+  var self = this;
+  if (this.scrollFrame !== null) return;
+  this.scrollFrame = requestFrame(function () { self.scrollFrame = null; self.renderVirtualRows(); });
+};
+
+TableView.prototype.renderVirtualRows = function (force) {
   if (!this.body || this.state.collapsed) return;
   if (!this.bodyEntries.length) {
     if (this.virtualStart === 0 && this.virtualEnd === 0) return;
@@ -1360,13 +1522,21 @@ TableView.prototype.renderVirtualRows = function () {
     }
     this.virtualStart = 0; this.virtualEnd = 0; return;
   }
-  var fixed = (2 + this.pinnedEntries.length + (this.hiddenBefore ? 1 : 0)) * this.rowHeight;
-  var relativeTop = Math.max(0, this.viewport.scrollTop - fixed); var overscan = 8;
-  var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2;
-  var targetCount = Math.min(this.bodyEntries.length, count);
-  var start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan);
-  start = Math.min(start, this.bodyEntries.length - targetCount); var end = start + targetCount;
-  if (start === this.virtualStart && end === this.virtualEnd) return;
+  if (this.app.wrapText && this.pendingScrollAnchor) this.restoreScrollAnchor(this.pendingScrollAnchor);
+  var relativeTop = Math.max(0, this.viewport.scrollTop - this.fixedBodyTop()); var overscan = 8;
+  var start; var end;
+  if (this.app.wrapText) {
+    var overscanPixels = overscan * this.rowHeight;
+    start = offsetIndex(this.rowOffsets, Math.max(0, relativeTop - overscanPixels));
+    end = offsetIndex(this.rowOffsets, relativeTop + this.viewport.clientHeight + overscanPixels) + 1;
+    end = Math.min(this.bodyEntries.length, Math.max(start + 1, end));
+  } else {
+    var count = Math.ceil(this.viewport.clientHeight / this.rowHeight) + overscan * 2;
+    var targetCount = Math.min(this.bodyEntries.length, count);
+    start = Math.max(0, Math.floor(relativeTop / this.rowHeight) - overscan);
+    start = Math.min(start, this.bodyEntries.length - targetCount); end = start + targetCount;
+  }
+  if (!force && start === this.virtualStart && end === this.virtualEnd) return;
 
   var target = {}; var kept = {}; var freeRows = []; var freeMarkers = []; var index;
   for (index = start; index < end; index += 1) target[index] = true;
@@ -1395,21 +1565,26 @@ TableView.prototype.renderVirtualRows = function () {
       item.kind = data.kind;
       if (data.kind === 'marker') this.updateHiddenMarker(item.node, data.ids);
       else this.updateRow(item.node, data.entry, data.visibleIndex, false);
-      item.node.style.position = 'absolute'; item.node.style.top = index * this.rowHeight + 'px';
+      item.node.style.position = 'absolute'; item.node.style.top = this.bodyOffset(index) + 'px';
       var reference = null;
       for (var nextIndex = index + 1; nextIndex < end; nextIndex += 1) {
         if (kept[nextIndex]) { reference = kept[nextIndex].node; break; }
       }
       this.body.insertBefore(item.node, reference);
     }
+    item.node.style.top = this.bodyOffset(index) + 'px';
     nextRows.push(item);
   }
   this.virtualRows = nextRows; this.virtualStart = start; this.virtualEnd = end;
+  if (this.measureVirtualRows()) {
+    this.applyHeight(false);
+    this.scheduleVirtualRows();
+  }
 };
 
 TableView.prototype.createRow = function (pinned) {
   var row = element('div', 'grid-row data-row' + (pinned ? ' pinned-row' : '')); row.setAttribute('role', 'row');
-  row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; row.appendChild(this.createNumberCell());
+  this.applyDataRowHeight(row); row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; row.appendChild(this.createNumberCell());
   for (var index = 0; index < this.layout.columns.length; index += 1) {
     var layout = this.layout.columns[index]; var type = this.table.columnTypes[layout.modelIndex]; var numericClass = type === 'number' || type === 'percent' ? ' numeric-cell' : '';
     var cell = element('div', 'grid-cell data-cell' + numericClass); cell.setAttribute('role', 'gridcell'); cell.setAttribute('data-visible-column', String(layout.visibleIndex)); this.styleCell(cell, layout, false); row.appendChild(cell);
@@ -1419,7 +1594,7 @@ TableView.prototype.createRow = function (pinned) {
 
 TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
   row.className = 'grid-row data-row' + (pinned ? ' pinned-row' : ''); row.setAttribute('data-row-id', entry.id); row.setAttribute('data-visible-row', String(visibleRowIndex));
-  row.style.height = this.rowHeight + 'px'; row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; this.updateNumberCell(row.children[0], entry);
+  this.applyDataRowHeight(row); row.style.width = Math.max(this.layout.totalWidth, this.viewport.clientWidth || 0) + 'px'; this.updateNumberCell(row.children[0], entry);
   for (var layoutIndex = 0; layoutIndex < this.layout.columns.length; layoutIndex += 1) {
     var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var display = model.resolveCellDisplay(value, this.app.displaySettings); var title = display.text; var type = this.table.columnTypes[layout.modelIndex];
     cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : '') + (display.isEmptyReference ? ' empty-reference-cell' : ''); cell.title = title; cell.style.color = display.color || ''; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);

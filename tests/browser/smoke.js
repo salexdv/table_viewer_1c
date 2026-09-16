@@ -126,9 +126,16 @@ async function main() {
     const commandButtons = await page.$$eval('.command-icon-button, .tree-command-button', function (nodes) {
       return nodes.map(function (node) { return { text: node.textContent, title: node.title, label: node.getAttribute('aria-label'), icons: node.querySelectorAll('svg[aria-hidden="true"]').length }; });
     });
-    assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '']);
-    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Свернуть все', 'Развернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.text; }), ['', '', '', '', '']);
+    assert.deepStrictEqual(commandButtons.map(function (item) { return item.title; }), ['Переносить текст', 'Свернуть все', 'Развернуть все', 'Раскрыть дерево', 'Свернуть дерево']);
     assert.ok(commandButtons.every(function (item) { return item.label === item.title && item.icons === 1; }));
+    assert.deepStrictEqual(await page.$eval('.toolbar-columns-group', function (node) {
+      return Array.prototype.map.call(node.children, function (child) { return { text: child.textContent, className: child.className }; });
+    }), [
+      { text: 'Колонки', className: 'button' },
+      { text: '', className: 'icon-button command-icon-button wrap-text-button' }
+    ]);
+    assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
     assert.deepStrictEqual(await page.$$eval('.toolbar-commands > .toolbar-group', function (nodes) { return nodes.map(function (node) { return node.className; }); }), [
       'toolbar-group toolbar-columns-group',
       'toolbar-group toolbar-global-group',
@@ -853,6 +860,84 @@ async function main() {
     assert.notStrictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none');
 
     assert.strictEqual(await page.evaluate(function () {
+      var rows = [];
+      var phrase = 'Длинный текст для проверки переноса на несколько строк внутри узкой ячейки. ';
+      var token = 'ОченьДлинноеНепрерывноеЗначениеБезПробелов';
+      for (var index = 0; index < 10000; index += 1) rows.push({ columns: [index === 1 ? token + token + token : phrase + phrase + index, String(index)] });
+      return window.setData({ tables: [{ name: 'Перенос', columns: ['Текст', 'Номер'], rows: rows }] });
+    }), true);
+    await page.setViewport({ width: 520, height: 700 });
+    await new Promise(function (resolve) { setTimeout(resolve, 60); });
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Зафиксировать строку');
+    const nowrapGeometry = await page.$eval('.table-card[data-table-index="0"] [data-row-id="1"]', function (node) {
+      var cell = node.querySelector('.data-cell'); var style = getComputedStyle(cell);
+      return { rowHeight: node.getBoundingClientRect().height, whiteSpace: style.whiteSpace, overflow: style.textOverflow };
+    });
+    assert.deepStrictEqual(nowrapGeometry, { rowHeight: 26, whiteSpace: 'nowrap', overflow: 'ellipsis' });
+    await page.click('.wrap-text-button');
+    await new Promise(function (resolve) { setTimeout(resolve, 80); });
+    assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'true');
+    assert.ok(await page.$eval('.wrap-text-button', function (node) { return getComputedStyle(node).boxShadow.indexOf('inset') !== -1; }));
+    const wrappedGeometry = await page.evaluate(function () {
+      function geometry(selector) {
+        var row = document.querySelector(selector); var cell = row.querySelector('.data-cell'); var style = getComputedStyle(cell);
+        return { rowHeight: row.getBoundingClientRect().height, cellHeight: cell.getBoundingClientRect().height, scrollHeight: cell.scrollHeight, whiteSpace: style.whiteSpace, overflow: style.textOverflow };
+      }
+      return {
+        regular: geometry('.table-card[data-table-index="0"] [data-row-id="1"]'),
+        pinned: geometry('.table-card[data-table-index="0"] .pinned-row'),
+        header: getComputedStyle(document.querySelector('.sort-button')).whiteSpace,
+        filter: getComputedStyle(document.querySelector('.filter-cell')).whiteSpace
+      };
+    });
+    assert.ok(wrappedGeometry.regular.rowHeight > 26 && wrappedGeometry.pinned.rowHeight > 26);
+    assert.strictEqual(wrappedGeometry.regular.rowHeight, wrappedGeometry.regular.cellHeight);
+    assert.ok(wrappedGeometry.regular.scrollHeight <= wrappedGeometry.regular.cellHeight);
+    assert.strictEqual(wrappedGeometry.regular.whiteSpace, 'normal');
+    assert.strictEqual(wrappedGeometry.regular.overflow, 'clip');
+    assert.strictEqual(wrappedGeometry.header, 'nowrap');
+    assert.strictEqual(wrappedGeometry.filter, 'nowrap');
+    assert.ok(await page.$$eval('.data-row', function (nodes) { return nodes.length; }) < 100, 'Перенос не должен отключать виртуализацию');
+    await page.$eval('.grid-viewport', function (node) { node.scrollTop = 5000; });
+    await new Promise(function (resolve) { setTimeout(resolve, 80); });
+    async function topWrappedRow() {
+      return page.$eval('.grid-viewport', function (viewport) {
+        var target = viewport.getBoundingClientRect().top + 120; var rows = viewport.querySelectorAll('.virtual-body .data-row'); var best = null; var distance = Infinity;
+        for (var index = 0; index < rows.length; index += 1) {
+          var current = Math.abs(rows[index].getBoundingClientRect().top - target);
+          if (current < distance) { distance = current; best = rows[index].getAttribute('data-row-id'); }
+        }
+        return best;
+      });
+    }
+    const anchorBeforeResize = await topWrappedRow();
+    await page.setViewport({ width: 460, height: 700 });
+    await new Promise(function (resolve) { setTimeout(resolve, 100); });
+    assert.strictEqual(await topWrappedRow(), anchorBeforeResize, 'Изменение ширины должно сохранять логическую верхнюю строку');
+    assert.ok(await page.$$eval('.virtual-body .data-row', function (nodes) {
+      var rows = Array.prototype.map.call(nodes, function (node) { var rect = node.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom }; }).sort(function (left, right) { return left.top - right.top; });
+      for (var index = 1; index < rows.length; index += 1) if (rows[index].top < rows[index - 1].bottom - 1) return false;
+      return true;
+    }), 'Многострочные строки не должны накладываться после resize');
+    const anchorBeforeScale = await topWrappedRow();
+    await page.$eval('.table-card[data-table-index="0"] input[type="range"]', function (input) { input.value = '110'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 100); });
+    assert.strictEqual(await topWrappedRow(), anchorBeforeScale, 'Изменение масштаба должно сохранять логическую верхнюю строку');
+    await page.$eval('.grid-viewport', function (node) { node.scrollTop = node.scrollHeight; });
+    await new Promise(function (resolve) { setTimeout(resolve, 100); });
+    assert.ok(await page.$('.table-card[data-table-index="0"] [data-row-id="9999"]'), 'В режиме переноса должна быть доступна последняя строка');
+    assert.ok(await page.$$eval('.data-row', function (nodes) { return nodes.length; }) < 100, 'Пул строк с переносом должен оставаться ограниченным');
+    assert.strictEqual(await page.evaluate(function () {
+      return window.setData({ tables: [{ name: 'Сохранение режима', columns: ['Текст'], rows: [{ columns: ['Длинный текст после setData Длинный текст после setData'] }] }] });
+    }), true);
+    assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'true');
+    await page.click('.wrap-text-button');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.$eval('.data-row', function (node) { var cell = node.querySelector('.data-cell'); return { height: node.getBoundingClientRect().height, whiteSpace: getComputedStyle(cell).whiteSpace }; }), { height: 26, whiteSpace: 'nowrap' });
+    await page.setViewport({ width: 1280, height: 800 });
+
+    assert.strictEqual(await page.evaluate(function () {
       return window.init({
         tables: [{
           id: 'metrics',
@@ -880,6 +965,7 @@ async function main() {
         }
       });
     }), true);
+    assert.strictEqual(await page.$eval('.wrap-text-button', function (node) { return node.getAttribute('aria-pressed'); }), 'false');
     assert.strictEqual(await page.$eval('.scale-value', function (node) { return node.textContent; }), '120%');
     assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
       return nodes.map(function (node) { return node.textContent; });
