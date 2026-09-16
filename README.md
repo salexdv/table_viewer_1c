@@ -35,6 +35,11 @@ npm run build
 Готовый файл находится в `dist/index.html`. Команда сборки дополнительно проверяет, что HTML единственный,
 не содержит внешних ресурсов, сохраняет `_DATA_`, а inline JavaScript разбирается как ES2015.
 
+При публикации [GitHub Release](https://github.com/salexdv/table_viewer_1c/releases) этот файл автоматически
+собирается и прикладывается к релизу под именем `table_viewer.html`. Workflow также можно запустить вручную на
+вкладке Actions: в этом случае готовый файл сохраняется в Actions Artifact `table_viewer-html`, не изменяя
+релизы.
+
 Для разработки и проверок:
 
 ```bash
