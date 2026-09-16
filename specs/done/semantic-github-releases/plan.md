@@ -34,10 +34,8 @@
   outputs Release Please, Node.js-стратегия, корневой package и формат тегов без component.
 - `tests/TestTableViewer.epf` имеет размер 57 906 байт, доступен в чистом `git archive` и помечен атрибутом
   `binary` (`diff`, `merge` и `text` unset).
-- `npm run test:unit` завершился успешно: 33 теста.
-- `npm run build` создал автономный `dist/index.html` размером 96 КиБ; проверки single-file и ES2015 прошли.
-- `npm run test:browser` запускает Chromium, но останавливается на существующем ожидании gap `8 px`: после
-  коммита `b9925d0`, добавившего `.collapse-tree-button { margin-left: 3px; }`, фактический gap равен `11 px`.
-  Код и тест просмотрщика в этой спецификации не изменялись.
+- `npm test` завершился успешно: прошли 33 unit-теста, production single-file/ES2015 сборка и browser smoke.
+- Ожидание browser smoke синхронизировано с добавленным ранее в коммите `b9925d0` отступом кнопки: фактический
+  и ожидаемый gap равен `11 px`; runtime-код не изменялся.
 - GitHub-hosted проверка Release PR, тега `v1.0.0` и обоих assets выполняется после отправки коммитов в
   `master`; implementation-коммит содержит `Release-As: 1.0.0`.
