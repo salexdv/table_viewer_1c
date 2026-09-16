@@ -170,6 +170,89 @@ describe('модель данных', function () {
     assert.isFalse(!!state.hiddenColumns[0]);
   });
 
+  it('сохраняет и восстанавливает упорядоченную фиксацию строк и колонок', function () {
+    const data = model.parseData({ tables: [{
+      id: 'sales',
+      name: 'Продажи',
+      columns: [{ id: 'sale', name: 'Продажа' }, 'Комментарий'],
+      rows: [
+        { columns: ['A', 'Корень'], children: [{ columns: ['A.1', 'Потомок'] }] },
+        { columns: ['B', 'Вторая'] }
+      ]
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    state.pinnedColumns = [0, 1];
+    state.pinnedRows = ['0.0', '1'];
+
+    const snapshot = model.getViewSettings(data, [state], '');
+    assert.deepEqual(snapshot.tables[0].pinnedColumns, ['sale', 1]);
+    assert.deepEqual(snapshot.tables[0].pinnedRows, ['1.1', 2]);
+
+    const applied = model.applyViewSettings(
+      data,
+      [model.makeTableState(data.tables[0])],
+      '',
+      model.parseViewSettings(JSON.stringify(snapshot))
+    );
+    assert.deepEqual(applied.states[0].pinnedColumns, [0, 1]);
+    assert.deepEqual(applied.states[0].pinnedRows, ['0.0', '1']);
+    assert.deepEqual(applied.warnings, []);
+  });
+
+  it('применяет фиксацию как patch и раздельно сбрасывает вид с отсутствующей целью', function () {
+    const data = model.parseData({ tables: [{
+      id: 'sales', name: 'Продажи', columns: [{ id: 'sale', name: 'Продажа' }],
+      rows: [{ columns: ['A'] }, { columns: ['B'] }]
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    state.pinnedColumns = [0];
+    state.pinnedRows = ['1'];
+
+    const rowsCleared = model.applyViewSettings(data, [state], '', model.parseViewSettings({
+      tables: [{ id: 'sales', pinnedRows: [3] }]
+    }));
+    assert.deepEqual(rowsCleared.states[0].pinnedColumns, [0]);
+    assert.deepEqual(rowsCleared.states[0].pinnedRows, []);
+    assert.lengthOf(rowsCleared.warnings, 1);
+
+    const columnsCleared = model.applyViewSettings(data, [state], '', model.parseViewSettings({
+      tables: [{ id: 'sales', pinnedColumns: ['missing'], pinnedRows: [1] }]
+    }));
+    assert.deepEqual(columnsCleared.states[0].pinnedColumns, []);
+    assert.deepEqual(columnsCleared.states[0].pinnedRows, ['0']);
+    assert.lengthOf(columnsCleared.warnings, 1);
+
+    const emptyColumns = model.applyViewSettings(data, [state], '', model.parseViewSettings({
+      tables: [{ id: 'sales', pinnedColumns: [] }]
+    }));
+    assert.deepEqual(emptyColumns.states[0].pinnedColumns, []);
+    assert.deepEqual(emptyColumns.states[0].pinnedRows, ['1']);
+  });
+
+  it('валидирует ссылки фиксации и отклоняет разные ссылки на одну цель атомарно', function () {
+    assert.throws(function () {
+      model.parseViewSettings({ tables: [{ index: 0, pinnedRows: [1, 1] }] });
+    }, '$.tables[0].pinnedRows[1]: ссылка на строку повторяется');
+    assert.throws(function () {
+      model.parseViewSettings({ tables: [{ index: 0, pinnedRows: ['1'] }] });
+    }, '$.tables[0].pinnedRows[0]: ожидался целый положительный номер или 1-based путь строки');
+    assert.throws(function () {
+      model.parseViewSettings({ tables: [{ index: 0, pinnedColumns: ['sale', 'sale'] }] });
+    }, '$.tables[0].pinnedColumns[1]: ссылка на колонку повторяется');
+
+    const data = model.parseData({ tables: [{
+      name: 'Продажи', columns: [{ id: 'sale', name: 'Продажа' }], rows: [{ columns: ['A'] }]
+    }] });
+    const state = model.makeTableState(data.tables[0]);
+    state.pinnedRows = ['0'];
+    const patch = model.parseViewSettings({ tables: [{ index: 0, pinnedColumns: ['sale', 0] }] });
+    assert.throws(function () {
+      model.applyViewSettings(data, [state], '', patch);
+    }, 'ссылки указывают на одну колонку');
+    assert.deepEqual(state.pinnedColumns, []);
+    assert.deepEqual(state.pinnedRows, ['0']);
+  });
+
   it('распознаёт числа, проценты и ведущие нули', function () {
     assert.deepEqual(model.parseNumeric('1 234,56'), { kind: 'number', value: 1234.56 });
     assert.deepEqual(model.parseNumeric('-12.5'), { kind: 'number', value: -12.5 });

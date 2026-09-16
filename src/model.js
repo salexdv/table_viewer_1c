@@ -170,10 +170,41 @@ function parseColumnSettingsPatch(source, path) {
   return result;
 }
 
+function parsePinnedColumns(source, path) {
+  if (!Array.isArray(source)) fail(path, 'ожидался массив id или индексов');
+  var seen = Object.create(null);
+  return source.map(function (reference, index) {
+    var key;
+    if (typeof reference === 'string' && reference.trim()) key = 'id:' + reference;
+    else if (typeof reference === 'number' && isFinite(reference) && reference >= 0 && Math.floor(reference) === reference) {
+      key = 'index:' + reference;
+    } else fail(path + '[' + index + ']', 'ожидался непустой строковый id или целый неотрицательный индекс');
+    if (hasOwn(seen, key)) fail(path + '[' + index + ']', 'ссылка на колонку повторяется');
+    seen[key] = true;
+    return reference;
+  });
+}
+
+function parsePinnedRows(source, path) {
+  if (!Array.isArray(source)) fail(path, 'ожидался массив номеров или путей строк');
+  var seen = Object.create(null);
+  return source.map(function (reference, index) {
+    var key;
+    if (typeof reference === 'number' && isFinite(reference) && reference >= 1 && Math.floor(reference) === reference) {
+      key = String(reference);
+    } else if (typeof reference === 'string' && /^[1-9]\d*(?:\.[1-9]\d*)+$/.test(reference)) {
+      key = reference;
+    } else fail(path + '[' + index + ']', 'ожидался целый положительный номер или 1-based путь строки');
+    if (hasOwn(seen, key)) fail(path + '[' + index + ']', 'ссылка на строку повторяется');
+    seen[key] = true;
+    return reference;
+  });
+}
+
 function parseTableSettingsPatch(source, path) {
   if (!isObject(source)) fail(path, 'ожидался объект');
   validateKnownFields(source, {
-    id: true, index: true, scale: true, columnOrder: true, columns: true
+    id: true, index: true, scale: true, columnOrder: true, columns: true, pinnedColumns: true, pinnedRows: true
   }, path);
   var result = validateTarget(source, path);
   if (hasOwn(source, 'scale')) {
@@ -207,6 +238,8 @@ function parseTableSettingsPatch(source, path) {
       return parsed;
     });
   }
+  if (hasOwn(source, 'pinnedColumns')) result.pinnedColumns = parsePinnedColumns(source.pinnedColumns, path + '.pinnedColumns');
+  if (hasOwn(source, 'pinnedRows')) result.pinnedRows = parsePinnedRows(source.pinnedRows, path + '.pinnedRows');
   return result;
 }
 
@@ -908,6 +941,56 @@ function applyFilterPatch(state, columnIndex, filter) {
   if (hasOwn(filter, 'values')) state.valueFilters[columnIndex] = valuesToMap(filter.values);
 }
 
+function applyPinnedColumns(table, state, references, path, warnings) {
+  var resolved = [];
+  var seen = Object.create(null);
+  var missing = false;
+  for (var index = 0; index < references.length; index += 1) {
+    var columnIndex = findColumnIndex(table, references[index]);
+    if (columnIndex === -1) {
+      warnings.push(path + '[' + index + ']: колонка не найдена, фиксация колонок сброшена');
+      missing = true;
+      continue;
+    }
+    if (hasOwn(seen, columnIndex)) fail(path + '[' + index + ']', 'ссылки указывают на одну колонку');
+    seen[columnIndex] = true;
+    resolved.push(columnIndex);
+  }
+  state.pinnedColumns = missing ? [] : resolved;
+}
+
+function rowReferenceToId(reference) {
+  if (typeof reference === 'number') return String(reference - 1);
+  return reference.split('.').map(function (part) { return String(Number(part) - 1); }).join('.');
+}
+
+function rowIdToReference(id) {
+  var parts = id.split('.');
+  if (parts.length === 1) return Number(parts[0]) + 1;
+  return parts.map(function (part) { return String(Number(part) + 1); }).join('.');
+}
+
+function applyPinnedRows(table, state, references, path, warnings) {
+  var nodes = allNodes(table);
+  var available = Object.create(null);
+  for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) available[nodes[nodeIndex].id] = true;
+  var resolved = [];
+  var seen = Object.create(null);
+  var missing = false;
+  for (var index = 0; index < references.length; index += 1) {
+    var id = rowReferenceToId(references[index]);
+    if (!hasOwn(available, id)) {
+      warnings.push(path + '[' + index + ']: строка не найдена, фиксация строк сброшена');
+      missing = true;
+      continue;
+    }
+    if (hasOwn(seen, id)) fail(path + '[' + index + ']', 'ссылки указывают на одну строку');
+    seen[id] = true;
+    resolved.push(id);
+  }
+  state.pinnedRows = missing ? [] : resolved;
+}
+
 function applyViewSettings(data, states, globalFilter, settings) {
   var nextStates = states.map(cloneTableState);
   var nextGlobalFilter = globalFilter;
@@ -934,6 +1017,8 @@ function applyViewSettings(data, states, globalFilter, settings) {
     var state = nextStates[tableIndex];
     if (hasOwn(tablePatch, 'scale')) state.scale = tablePatch.scale;
     if (hasOwn(tablePatch, 'columnOrder')) applyColumnOrder(table, state, tablePatch.columnOrder, tablePath + '.columnOrder', warnings);
+    if (hasOwn(tablePatch, 'pinnedColumns')) applyPinnedColumns(table, state, tablePatch.pinnedColumns, tablePath + '.pinnedColumns', warnings);
+    if (hasOwn(tablePatch, 'pinnedRows')) applyPinnedRows(table, state, tablePatch.pinnedRows, tablePath + '.pinnedRows', warnings);
 
     var columnPatches = tablePatch.columns || [];
     var resolvedColumns = Object.create(null);
@@ -988,6 +1073,10 @@ function getViewSettings(data, states, globalFilter) {
       columnOrder: state.columnOrder.map(function (columnIndex) {
         return table.columnIds[columnIndex] === null ? columnIndex : table.columnIds[columnIndex];
       }),
+      pinnedColumns: state.pinnedColumns.map(function (columnIndex) {
+        return table.columnIds[columnIndex] === null ? columnIndex : table.columnIds[columnIndex];
+      }),
+      pinnedRows: state.pinnedRows.map(rowIdToReference),
       columns: []
     };
     if (table.id !== undefined) tableSettings.id = table.id;

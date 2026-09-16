@@ -459,6 +459,14 @@ async function main() {
     assert.strictEqual(await page.$$eval('.table-card[data-table-index="1"] .data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 0);
     assert.strictEqual(await page.evaluate(function () { return window.setTreeExpanded(1, true); }), true);
     assert.ok(await page.$$eval('.table-card[data-table-index="1"] .data-row', function (nodes) { return nodes.length; }) >= 4);
+    await page.click(firstDataCell);
+    assert.ok(await page.$('.table-card[data-table-index="1"] .selected-cell'));
+    await page.click(firstDataCell, { button: 'right' });
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-group', function (groups) { return groups[1].textContent; }), 'Открепить строкуОткрепить колонкуОтменить фиксацию');
+    await clickContextMenuItem(page, 'Отменить фиксацию');
+    assert.strictEqual(await page.$('.table-card[data-table-index="1"] .pinned-row'), null);
+    assert.strictEqual(await page.$('.table-card[data-table-index="1"] .pinned-column'), null);
+    assert.strictEqual(await page.$('.table-card[data-table-index="1"] .selected-cell'), null);
     assert.strictEqual(await page.evaluate(function () { return window.setTableCollapsed(1, true); }), true);
     assert.strictEqual(await page.$eval('.table-card[data-table-index="1"] .grid-host', function (node) { return getComputedStyle(node).display; }), 'none');
     assert.strictEqual(await page.evaluate(function () { return window.setTableCollapsed(1, false); }), true);
@@ -495,6 +503,19 @@ async function main() {
         ] }
       ] });
     });
+    assert.deepStrictEqual(await page.$$eval('.table-card[data-table-index="1"] .tree-level-button', function (nodes) {
+      return nodes.map(function (node) { return { text: node.textContent, title: node.title, label: node.getAttribute('aria-label') }; });
+    }), [
+      { text: '1', title: 'Уровень группировки 1', label: 'Уровень группировки 1' },
+      { text: '2', title: 'Уровень группировки 2', label: 'Уровень группировки 2' },
+      { text: '3', title: 'Уровень группировки 3', label: 'Уровень группировки 3' }
+    ]);
+    await page.click('.table-card[data-table-index="1"] .tree-level-button:nth-child(1)');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('2 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] .tree-level-button:nth-child(2)');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('4 / 5') !== -1);
+    await page.click('.table-card[data-table-index="1"] .tree-level-button:nth-child(3)');
+    assert.ok((await page.$eval('.table-card[data-table-index="1"] .table-count', function (node) { return node.textContent; })).indexOf('5 / 5') !== -1);
     await selectColumnAggregate(page, 0, 1, 'Сумма');
     assert.strictEqual(await page.$eval('.table-card[data-table-index="0"] .totals-cell[data-column="1"]', function (node) { return node.textContent; }), '21');
 
@@ -957,6 +978,8 @@ async function main() {
             id: 'metrics',
             scale: 120,
             columnOrder: ['amount', 'city', 'comment'],
+            pinnedColumns: ['amount'],
+            pinnedRows: [1],
             columns: [
               { id: 'city', width: 210, filter: { text: '', exact: false, values: ['Москва'] } },
               { id: 'amount', width: 190, aggregate: 'sum' },
@@ -971,7 +994,9 @@ async function main() {
     assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
       return nodes.map(function (node) { return node.textContent; });
     }), ['Сумма', 'Город']);
-    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 1);
+    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.$$eval('.pinned-row', function (nodes) { return nodes.length; }), 1);
+    assert.ok(await page.$('.header-cell[data-column="1"].pinned-column'));
     assert.strictEqual(await page.$eval('.totals-cell[data-column="1"]', function (node) { return node.textContent; }), '100');
 
     const settingsSnapshot = await page.evaluate(function () {
@@ -982,13 +1007,15 @@ async function main() {
     assert.strictEqual(settingsSnapshot.value.version, 1);
     assert.strictEqual(settingsSnapshot.value.tables[0].id, 'metrics');
     assert.deepStrictEqual(settingsSnapshot.value.tables[0].columnOrder, ['amount', 'city', 'comment']);
+    assert.deepStrictEqual(settingsSnapshot.value.tables[0].pinnedColumns, ['amount']);
+    assert.deepStrictEqual(settingsSnapshot.value.tables[0].pinnedRows, [1]);
     assert.strictEqual(settingsSnapshot.value.tables[0].columns[0].width, 210);
     assert.deepStrictEqual(settingsSnapshot.value.tables[0].columns[0].filter.values, ['Москва']);
 
     assert.strictEqual(await page.evaluate(function () {
       return window.setSettings(JSON.stringify({
         globalFilter: '',
-        tables: [{ id: 'metrics', index: 99, scale: 150, columnOrder: ['city'], columns: [
+        tables: [{ id: 'metrics', index: 99, scale: 150, columnOrder: ['city'], pinnedColumns: [], pinnedRows: [], columns: [
           { id: 'city', filter: null },
           { id: 'amount', aggregate: 'average', filter: { values: [] } },
           { id: 'comment', visible: true }
@@ -1006,7 +1033,9 @@ async function main() {
     assert.deepStrictEqual(await page.$$eval('.header-cell .sort-button', function (nodes) {
       return nodes.map(function (node) { return node.textContent; });
     }), ['Сумма', 'Город']);
-    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 1);
+    assert.strictEqual(await page.$$eval('.data-row:not(.pinned-row)', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.$$eval('.pinned-row', function (nodes) { return nodes.length; }), 1);
+    assert.ok(await page.$('.header-cell[data-column="1"].pinned-column'));
 
     const errorsBeforeValidation = errors.length;
     assert.strictEqual(await page.evaluate(function () { return window.setData('{"tables":[],}'); }), false);
