@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Публикация HTML-сборки в GitHub Release
-status: draft
+status: approved
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16
