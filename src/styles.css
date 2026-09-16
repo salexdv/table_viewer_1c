@@ -36,10 +36,12 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .button-primary:hover { color: #fff; background: #236fd3; }
 .button-small { min-height: 24px; padding: 2px 7px; font-size: 11px; }
 .command-icon-button { width: 30px; height: 30px; }
+.expand-all-button { margin-left: 3px; }
 .wrap-text-button[aria-pressed="true"] { border-color: #6f98c9; background: #dceafd; box-shadow: inset 0 2px 4px rgba(39, 78, 125, 0.28); }
 .tree-command-group { gap: 8px; }
 .icon-button.tree-command-button { width: 30px; height: 28px; min-height: 28px; }
 .tree-command-button .button-icon { width: 18px; height: 18px; }
+.collapse-tree-button { margin-left: 3px; }
 .button-icon { display: block; width: 16px; height: 16px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .export-button-temporarily-hidden { display: none; }
 .selection-aggregate-button { width: 34px; padding: 4px; color: #1d4f91; font-size: 18px; font-weight: 700; }

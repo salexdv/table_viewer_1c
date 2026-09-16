@@ -4,6 +4,8 @@
 1С 8.3.14+. Приложение не требует сервера и runtime-зависимостей: production-сборка состоит из одного
 минифицированного `dist/index.html` со встроенными JavaScript и CSS.
 
+![](https://github.com/salexdv/git_images/blob/master/table_viewer.png?raw=true) 
+
 ## Возможности
 
 - несколько таблиц и деревьев неограниченной практической глубины;
