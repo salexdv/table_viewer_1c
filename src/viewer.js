@@ -820,6 +820,13 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
       self.clearSelection(); self.closeMenu(); view.renderGrid();
     });
   }
+  if (view.state.pinnedRows.length || view.state.pinnedColumns.length) {
+    addMenuItem(pinGroup, 'Отменить фиксацию', function () {
+      view.state.pinnedRows = [];
+      view.state.pinnedColumns = [];
+      self.clearSelection(); self.closeMenu(); view.renderGrid();
+    });
+  }
   appendMenuGroup(menu, pinGroup);
 
   var collapseGroup = menuGroup();
@@ -1106,6 +1113,16 @@ TableView.prototype.createCard = function () {
   this.count = element('span', 'table-count'); titlebar.appendChild(this.count); titlebar.appendChild(element('span', 'title-spacer'));
   if (this.table.isTree) {
     var treeCommands = element('div', 'tree-command-group');
+    var levelCommands = element('div', 'tree-level-group');
+    var maximumLevel = model.treeDepth(this.table);
+    for (var level = 1; level <= maximumLevel; level += 1) {
+      (function (targetLevel) {
+        var label = 'Уровень группировки ' + targetLevel;
+        var button = addButton(levelCommands, String(targetLevel), label, function () { self.setGroupingLevel(targetLevel); }, 'tree-level-button');
+        button.setAttribute('aria-label', label);
+      })(level);
+    }
+    treeCommands.appendChild(levelCommands);
     addIconButton(treeCommands, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'icon-button tree-command-button expand-tree-button');
     addIconButton(treeCommands, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'icon-button tree-command-button collapse-tree-button');
     titlebar.appendChild(treeCommands);

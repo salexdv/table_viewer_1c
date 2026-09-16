@@ -26,7 +26,7 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .search-clear-button:hover { color: #285f9e; background: #e7f1fc; }
 .global-search-control { width: 50%; min-width: 180px; max-width: 50%; -webkit-box-flex: 0; flex: 0 1 50%; }
 .global-search { width: 100%; height: 30px; padding-top: 4px; padding-bottom: 4px; padding-left: 9px; border: 1px solid #bdcada; border-radius: 4px; color: #26364d; background: #fff; }
-.toolbar-commands, .toolbar-group, .tree-command-group { display: -webkit-box; display: flex; align-items: center; }
+.toolbar-commands, .toolbar-group, .tree-command-group, .tree-level-group { display: -webkit-box; display: flex; align-items: center; }
 .toolbar-commands { gap: 0; margin-left: auto; white-space: nowrap; }
 .toolbar-group { gap: 5px; }
 .toolbar-group + .toolbar-group { margin-left: 10px; padding-left: 10px; border-left: 1px solid #c3cfdd; }
@@ -39,6 +39,9 @@ button:focus, input:focus, select:focus, a:focus { outline: 2px solid #5b9cff; o
 .expand-all-button { margin-left: 3px; }
 .wrap-text-button[aria-pressed="true"] { border-color: #6f98c9; background: #dceafd; box-shadow: inset 0 2px 4px rgba(39, 78, 125, 0.28); }
 .tree-command-group { gap: 8px; }
+.tree-level-group { gap: 2px; }
+.tree-level-button { width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid #9eacbc; border-radius: 0; color: #455a73; font-size: 11px; line-height: 16px; background: #f8fbff; cursor: pointer; }
+.tree-level-button:hover { border-color: #6e98c8; color: #185ca8; background: #e7f1fc; }
 .icon-button.tree-command-button { width: 30px; height: 28px; min-height: 28px; }
 .tree-command-button .button-icon { width: 18px; height: 18px; }
 .collapse-tree-button { margin-left: 3px; }

@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Фиксация и управление уровнями дерева
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16
