@@ -38,6 +38,8 @@
   подсветка совпадений и совместимые с WebKit 1С кнопки очистки.
 - [`view-settings-api`](done/view-settings-api/spec.md) — JSON/API сохранения и восстановления масштаба,
   порядка и параметров колонок и всех фильтров.
+- [`pinning-and-tree-level-controls`](done/pinning-and-tree-level-controls/spec.md) — общий сброс фиксации,
+  кнопки уровней дерева и сохранение закреплённых строк и колонок в настройках.
 - [`cell-display-customization`](done/cell-display-customization/spec.md) — настройка представления и цвета точных
   значений, отрицательных чисел и пустых ссылок.
 - [`cell-text-wrapping`](done/cell-text-wrapping/spec.md) — глобальный перенос значений и виртуализация строк
