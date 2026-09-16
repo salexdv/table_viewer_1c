@@ -331,6 +331,8 @@ function ViewerApp(root) {
   this.wrapTextButton = null;
   this.theme = 'light';
   this.themeButton = null;
+  this.themeGroup = null;
+  this.themeButtonHidden = false;
   this.customContextMenuItems = [];
   this.displaySettings = model.makeDisplaySettings();
   this.onDocumentMouseUp = this.stopSelection.bind(this);
@@ -442,6 +444,7 @@ ViewerApp.prototype.render = function () {
   this.closeSelectionPopup();
   clear(this.root);
   this.tableViews = [];
+  this.themeGroup = null;
   var toolbar = element('div', 'global-toolbar');
   addSearchControl(toolbar, 'global-search-control', 'global-search', 'Поиск по всем таблицам…', 'Глобальный поиск', 'Очистить глобальный поиск', this.globalFilter, function (value) {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
@@ -468,6 +471,8 @@ ViewerApp.prototype.render = function () {
   setClass(this.root, 'text-wrapping', this.wrapText);
   commands.appendChild(wrapTextGroup);
   var themeGroup = element('div', 'toolbar-group toolbar-theme-group');
+  this.themeGroup = themeGroup;
+  setClass(themeGroup, 'toolbar-theme-group-hidden', this.themeButtonHidden);
   this.themeButton = addIconButton(themeGroup, 'theme-dark', 'Включить тёмную тему', function () {
     self.setTheme(self.theme === 'dark' ? 'light' : 'dark');
   }, 'icon-button command-icon-button theme-button');
@@ -534,6 +539,13 @@ ViewerApp.prototype.setTheme = function (theme) {
   if (theme !== 'light' && theme !== 'dark') return false;
   this.theme = theme;
   this.applyTheme();
+  return true;
+};
+
+ViewerApp.prototype.hideThemeButton = function () {
+  this.themeButtonHidden = true;
+  if (this.themeGroup) setClass(this.themeGroup, 'toolbar-theme-group-hidden', true);
+  this.scheduleTableLayouts();
   return true;
 };
 
@@ -1060,6 +1072,7 @@ ViewerApp.prototype.destroy = function () {
   this.cancelPageScrollbar();
   this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy();
   this.wrapText = false; this.wrapTextButton = null; this.theme = 'light'; this.themeButton = null;
+  this.themeGroup = null; this.themeButtonHidden = false;
   setClass(this.root, 'text-wrapping', false); setClass(document.documentElement, 'theme-dark', false); clear(this.root);
 };
 
@@ -1706,6 +1719,7 @@ function installPublicApi() {
   window.getSettings = function () { return currentApp ? currentApp.getSettings() : false; };
   window.setSettings = function (settings) { return currentApp ? currentApp.setSettings(settings) : false; };
   window.setTheme = function (theme) { return currentApp ? currentApp.setTheme(theme) : false; };
+  window.hideThemeButton = function () { return currentApp ? currentApp.hideThemeButton() : false; };
   window.setTableCollapsed = function (tableIndex, collapsed) { return currentApp ? currentApp.setTableCollapsed(Number(tableIndex), collapsed) : false; };
   window.setTreeExpanded = function (tableIndex, expanded) { return currentApp ? currentApp.setTreeExpanded(Number(tableIndex), expanded) : false; };
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };

@@ -51,3 +51,5 @@
   публикацией автономного HTML и тестовой обработки EPF.
 - [`dark-theme`](done/dark-theme/spec.md) — светлая и тёмная палитры, кнопка и API переключения с сохранением
   темы в Settings.
+- [`hide-theme-button-api`](done/hide-theme-button-api/spec.md) — одностороннее скрытие кнопки темы через
+  публичный API.
