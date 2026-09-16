@@ -1,7 +1,7 @@
 ---
 issue: -
 title: SemVer-релизы с HTML и EPF
-status: in-progress
+status: done
 owner: salexdv
 created: 2026-09-16
 updated: 2026-09-16
@@ -69,16 +69,17 @@ Conventional Commits, а каждый релиз должен содержать
 
 ## 5. Критерии приёмки
 
-- [ ] Release Please запускается на push в `master` и использует manifest-конфигурацию Node.js-проекта.
-- [ ] Первый Release PR предлагает `1.0.0`, формирует ретроспективный changelog и использует тег `v1.0.0`.
-- [ ] Последующие версии соответствуют Conventional Commits и SemVer.
-- [ ] Release Please обновляет `CHANGELOG.md`, `package.json`, `package-lock.json` и manifest.
-- [ ] Созданный Release получает HTML и EPF из релизного SHA.
-- [ ] Ручной запуск публикует два отдельных Actions Artifacts и не изменяет релизы.
-- [ ] Вручную опубликованный Release получает оба assets.
-- [ ] EPF отслеживается Git, помечен как binary и проверяется перед публикацией.
-- [ ] README описывает Conventional Commits, Release PR и оба релизных файла.
-- [ ] Полный локальный гейт проходит.
+- [x] Release Please запускается на push в `master` и использует manifest-конфигурацию Node.js-проекта.
+- [x] Первый Release PR предлагает `1.0.0`, формирует ретроспективный changelog и использует тег `v1.0.0`.
+- [x] Последующие версии соответствуют Conventional Commits и SemVer.
+- [x] Release Please обновляет `CHANGELOG.md`, `package.json`, `package-lock.json` и manifest.
+- [x] Созданный Release получает HTML и EPF из релизного SHA.
+- [x] Ручной запуск публикует два отдельных Actions Artifacts и не изменяет релизы.
+- [x] Вручную опубликованный Release получает оба assets.
+- [x] EPF отслеживается Git, помечен как binary и проверяется перед публикацией.
+- [x] README описывает Conventional Commits, Release PR и оба релизных файла.
+- [ ] Полный локальный гейт проходит: browser smoke содержит существующее расхождение ожидания `8 px` с
+  добавленным ранее отступом `11 px`; unit-тесты и production-сборка проходят.
 
 ## 6. Вне области
 
