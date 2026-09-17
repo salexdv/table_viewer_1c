@@ -86,14 +86,49 @@ function addSubmenu(app, parent, label, build) {
   trigger.setAttribute('aria-expanded', 'false');
   var submenu = element('div', 'context-menu context-submenu');
   submenu.setAttribute('role', 'menu');
-  var group = menuGroup();
-  build(group);
-  appendMenuGroup(submenu, group);
+  build(submenu);
   wrapper.appendChild(submenu);
   wrapper.addEventListener('mouseenter', function () { app.openSubmenu(wrapper, submenu, trigger); });
   trigger.addEventListener('focus', function () { app.openSubmenu(wrapper, submenu, trigger); });
   parent.appendChild(wrapper);
   return wrapper;
+}
+
+function hasCustomMenuItems(entries) {
+  for (var index = 0; index < entries.length; index += 1) {
+    if (entries[index].type === 'item') return true;
+    if (entries[index].type === 'submenu' && hasCustomMenuItems(entries[index].entries)) return true;
+  }
+  return false;
+}
+
+function appendCustomMenuEntries(app, menu, entries, value) {
+  var group = menuGroup();
+  for (var index = 0; index < entries.length; index += 1) {
+    var entry = entries[index];
+    if (entry.type === 'separator') {
+      appendMenuGroup(menu, group);
+      group = menuGroup();
+      continue;
+    }
+    if (entry.type === 'submenu') {
+      if (!hasCustomMenuItems(entry.entries)) continue;
+      (function (submenuEntry) {
+        var wrapper = addSubmenu(app, group, submenuEntry.name, function (submenu) {
+          appendCustomMenuEntries(app, submenu, submenuEntry.entries, value);
+        });
+        setClass(wrapper, 'custom-menu-submenu', true);
+      })(entry);
+      continue;
+    }
+    (function (item) {
+      addMenuItem(group, item.title, function () {
+        var params = model.isLinkCell(value) ? { value: value.label, ref: value.ref } : { value: value };
+        app.closeMenu(); app.bridge.send(item.eventName, params);
+      }, 'custom-menu-item');
+    })(entry);
+  }
+  appendMenuGroup(menu, group);
 }
 
 function bindSearchInput(input, onChange) {
@@ -723,14 +758,39 @@ ViewerApp.prototype.closeFilterPanel = function () {
   this.filterPanel = null;
 };
 
-ViewerApp.prototype.addContextMenuItem = function (title, eventName) {
-  if (typeof title !== 'string' || !title.trim() || typeof eventName !== 'string' || !eventName.trim()) return false;
-  this.customContextMenuEntries.push({ type: 'item', title: title, eventName: eventName });
+ViewerApp.prototype.findContextMenuSubmenu = function (name) {
+  for (var index = 0; index < this.customContextMenuEntries.length; index += 1) {
+    var entry = this.customContextMenuEntries[index];
+    if (entry.type === 'submenu' && entry.name === name) return entry;
+  }
+  return null;
+};
+
+ViewerApp.prototype.contextMenuEntriesFor = function (submenuName) {
+  if (submenuName === undefined) return this.customContextMenuEntries;
+  if (typeof submenuName !== 'string' || !submenuName.trim()) return null;
+  var submenu = this.findContextMenuSubmenu(submenuName);
+  return submenu ? submenu.entries : null;
+};
+
+ViewerApp.prototype.addContextMenuSubmenu = function (name) {
+  if (typeof name !== 'string' || !name.trim() || this.findContextMenuSubmenu(name)) return false;
+  this.customContextMenuEntries.push({ type: 'submenu', name: name, entries: [] });
   return true;
 };
 
-ViewerApp.prototype.addContextMenuSeparator = function () {
-  this.customContextMenuEntries.push({ type: 'separator' });
+ViewerApp.prototype.addContextMenuItem = function (title, eventName, submenuName) {
+  if (typeof title !== 'string' || !title.trim() || typeof eventName !== 'string' || !eventName.trim()) return false;
+  var entries = this.contextMenuEntriesFor(submenuName);
+  if (!entries) return false;
+  entries.push({ type: 'item', title: title, eventName: eventName });
+  return true;
+};
+
+ViewerApp.prototype.addContextMenuSeparator = function (submenuName) {
+  var entries = this.contextMenuEntriesFor(submenuName);
+  if (!entries) return false;
+  entries.push({ type: 'separator' });
   return true;
 };
 
@@ -892,7 +952,8 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
   appendMenuGroup(menu, pinGroup);
 
   var collapseGroup = menuGroup();
-  addSubmenu(this, collapseGroup, 'Сворачивание', function (submenuGroup) {
+  addSubmenu(this, collapseGroup, 'Сворачивание', function (submenu) {
+    var submenuGroup = menuGroup();
     addMenuItem(submenuGroup, 'Свернуть выделенные', function () {
       self.closeMenu(); view.hideSelectedRows(entry);
     });
@@ -902,12 +963,14 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
     addMenuItem(submenuGroup, 'Свернуть после', function () {
       self.closeMenu(); view.hideRowsAt(entry, false);
     });
+    appendMenuGroup(submenu, submenuGroup);
   });
   appendMenuGroup(menu, collapseGroup);
 
   if (view.table.isTree) {
     var groupingGroup = menuGroup();
-    addSubmenu(this, groupingGroup, 'Уровень группировки', function (submenuGroup) {
+    addSubmenu(this, groupingGroup, 'Уровень группировки', function (submenu) {
+      var submenuGroup = menuGroup();
       var maximum = model.treeDepth(view.table);
       for (var level = 1; level <= maximum; level += 1) {
         (function (targetLevel) {
@@ -916,28 +979,14 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
           });
         })(level);
       }
+      appendMenuGroup(submenu, submenuGroup);
     });
     appendMenuGroup(menu, groupingGroup);
   }
 
   if (columnIndex >= 0) {
-    var customGroup = menuGroup();
     var value = entry.row.columns[columnIndex];
-    for (var itemIndex = 0; itemIndex < this.customContextMenuEntries.length; itemIndex += 1) {
-      var customEntry = this.customContextMenuEntries[itemIndex];
-      if (customEntry.type === 'separator') {
-        appendMenuGroup(menu, customGroup);
-        customGroup = menuGroup();
-        continue;
-      }
-      (function (item) {
-        addMenuItem(customGroup, item.title, function () {
-          var params = model.isLinkCell(value) ? { value: value.label, ref: value.ref } : { value: value };
-          self.closeMenu(); self.bridge.send(item.eventName, params);
-        }, 'custom-menu-item');
-      })(customEntry);
-    }
-    appendMenuGroup(menu, customGroup);
+    appendCustomMenuEntries(this, menu, this.customContextMenuEntries, value);
   }
   document.body.appendChild(menu);
   this.menu = menu;
@@ -1735,8 +1784,9 @@ function installPublicApi() {
   window.setTreeExpanded = function (tableIndex, expanded) { return currentApp ? currentApp.setTreeExpanded(Number(tableIndex), expanded) : false; };
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };
   window.collapseAll = function () { if (!currentApp) return false; currentApp.collapseAll(); return true; };
-  window.addContextMenuItem = function (title, eventName) { return currentApp ? currentApp.addContextMenuItem(title, eventName) : false; };
-  window.addContextMenuSeparator = function () { return currentApp ? currentApp.addContextMenuSeparator() : false; };
+  window.addContextMenuSubmenu = function (name) { return currentApp ? currentApp.addContextMenuSubmenu(name) : false; };
+  window.addContextMenuItem = function (title, eventName, submenuName) { return currentApp ? currentApp.addContextMenuItem(title, eventName, submenuName) : false; };
+  window.addContextMenuSeparator = function (submenuName) { return currentApp ? currentApp.addContextMenuSeparator(submenuName) : false; };
   window.setNegativeNumberColor = function (color) { return currentApp ? currentApp.setNegativeNumberColor(color) : false; };
   window.setCellValuePresentation = function (value, presentation) { return currentApp ? currentApp.setCellValuePresentation(value, presentation) : false; };
   window.setCellValueColor = function (value, color) { return currentApp ? currentApp.setCellValueColor(value, color) : false; };

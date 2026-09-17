@@ -839,9 +839,30 @@ async function main() {
         window.addContextMenuSeparator(),
         window.addContextMenuSeparator(),
         window.addContextMenuItem('Вторая команда', 'EVENT_SECOND'),
-        window.addContextMenuSeparator()
+        window.addContextMenuSeparator(),
+        window.addContextMenuSubmenu(''),
+        window.addContextMenuSubmenu(null),
+        window.addContextMenuItem('Неизвестное подменю', 'EVENT_UNKNOWN', 'Неизвестное'),
+        window.addContextMenuSeparator('Неизвестное'),
+        window.addContextMenuSubmenu('Пустое'),
+        window.addContextMenuSeparator('Пустое'),
+        window.addContextMenuSubmenu('<b>Действия</b>'),
+        window.addContextMenuSubmenu('<b>Действия</b>'),
+        window.addContextMenuSeparator('<b>Действия</b>'),
+        window.addContextMenuItem('Команда подменю', 'EVENT_SUBMENU', '<b>Действия</b>'),
+        window.addContextMenuSeparator('<b>Действия</b>'),
+        window.addContextMenuSeparator('<b>Действия</b>'),
+        window.addContextMenuItem('Ссылка подменю', 'EVENT_SUBMENU_LINK', '<b>Действия</b>'),
+        window.addContextMenuSeparator('<b>Действия</b>'),
+        window.addContextMenuSubmenu('Последнее'),
+        window.addContextMenuItem('Последняя команда', 'EVENT_LAST', 'Последнее'),
+        window.addContextMenuSeparator(null)
       ];
-    }), [false, false, false, false, true, true, true, true, true, true]);
+    }), [
+      false, false, false, false, true, true, true, true, true, true,
+      false, false, false, false, true, true, true, false, true, true,
+      true, true, true, true, true, true, false
+    ]);
     await page.evaluate(function () {
       window.setData({ tables: [
         { name: 'Пользовательские события', columns: ['Значение'], rows: [
@@ -860,35 +881,71 @@ async function main() {
     assert.deepStrictEqual(await page.$eval('body > .context-menu', function (menu) {
       return Array.prototype.map.call(menu.children, function (child) {
         if (child.className === 'menu-separator') return 'separator';
-        return Array.prototype.map.call(child.children, function (item) { return item.className === 'menu-submenu' ? item.firstElementChild.textContent : item.textContent; }).join('|');
+        return Array.prototype.map.call(child.children, function (item) {
+          return (' ' + item.className + ' ').indexOf(' menu-submenu ') !== -1 ? item.firstElementChild.textContent : item.textContent;
+        }).join('|');
       });
     }), [
       'Отбор по значению', 'separator', 'Зафиксировать строку|Зафиксировать колонку', 'separator',
-      'Сворачивание', 'separator', '<img src=x onerror=alert(1)>', 'separator', 'Вторая команда'
+      'Сворачивание', 'separator', '<img src=x onerror=alert(1)>', 'separator', 'Вторая команда', 'separator',
+      '<b>Действия</b>|Последнее'
     ]);
     assert.strictEqual(await page.$$eval('.context-menu img', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.$$eval('.context-menu b', function (nodes) { return nodes.length; }), 0);
+    assert.deepStrictEqual(await page.$$eval('body > .context-menu .custom-menu-submenu > .menu-submenu-trigger', function (nodes) {
+      return nodes.map(function (node) { return { text: node.textContent, hasPopup: node.getAttribute('aria-haspopup'), expanded: node.getAttribute('aria-expanded') }; });
+    }), [
+      { text: '<b>Действия</b>', hasPopup: 'menu', expanded: 'false' },
+      { text: 'Последнее', hasPopup: 'menu', expanded: 'false' }
+    ]);
+    assert.strictEqual(await page.$$eval('body > .context-menu .custom-menu-submenu', function (nodes) { return nodes.length; }), 2, 'Пустое подменю не должно отображаться');
+    await page.$$eval('body > .context-menu .custom-menu-submenu > .menu-submenu-trigger', function (nodes) { nodes[0].click(); });
+    assert.deepStrictEqual(await page.$eval('body > .context-menu .custom-menu-submenu.menu-submenu-open > .context-submenu', function (submenu) {
+      return Array.prototype.map.call(submenu.children, function (child) {
+        if (child.className === 'menu-separator') return 'separator';
+        return Array.prototype.map.call(child.children, function (item) { return item.textContent; }).join('|');
+      });
+    }), ['Команда подменю', 'separator', 'Ссылка подменю']);
+    assert.strictEqual(await page.$eval('body > .context-menu .custom-menu-submenu.menu-submenu-open > .menu-submenu-trigger', function (node) { return node.getAttribute('aria-expanded'); }), 'true');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.$('body > .context-menu'), null);
     await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
-    assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 2);
-    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 5);
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-group > .custom-menu-item', function (nodes) { return nodes.length; }), 2);
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 6);
+    await page.$$eval('body > .context-menu .custom-menu-submenu > .menu-submenu-trigger', function (nodes) { nodes[1].focus(); });
+    assert.strictEqual(await page.$eval('body > .context-menu .custom-menu-submenu.menu-submenu-open > .menu-submenu-trigger', function (node) { return node.textContent; }), 'Последнее');
+    await page.mouse.click(2, 2);
+    assert.strictEqual(await page.$('body > .context-menu'), null);
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .number-cell', { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 0);
+    assert.strictEqual(await page.$$eval('.context-menu .custom-menu-submenu', function (nodes) { return nodes.length; }), 0);
     assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 1);
 
     for (let rowIndex = 0; rowIndex < 5; rowIndex += 1) {
       await page.click('.table-card[data-table-index="0"] [data-row-id="' + rowIndex + '"] .data-cell', { button: 'right' });
-      await page.$$eval('.context-menu .custom-menu-item', function (nodes) { nodes[0].click(); });
+      await page.$$eval('body > .context-menu > .menu-group > .custom-menu-item', function (nodes) { nodes[0].click(); });
       await new Promise(function (resolve) { setTimeout(resolve, 30); });
     }
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
-    await page.$$eval('.context-menu .custom-menu-item', function (nodes) { nodes[1].click(); });
+    await page.$$eval('body > .context-menu > .menu-group > .custom-menu-item', function (nodes) { nodes[1].click(); });
     await new Promise(function (resolve) { setTimeout(resolve, 30); });
-    assert.deepStrictEqual(await page.evaluate(function () { return window.__events.slice(-6); }), [
+    await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .data-cell', { button: 'right' });
+    await openContextSubmenu(page, '<b>Действия</b>');
+    await clickContextMenuItem(page, 'Команда подменю');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    await page.click('.table-card[data-table-index="0"] [data-row-id="4"] .data-cell', { button: 'right' });
+    await openContextSubmenu(page, '<b>Действия</b>');
+    await clickContextMenuItem(page, 'Ссылка подменю');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__events.slice(-8); }), [
       { event: 'EVENT_CELL_VALUE', params: { value: 'Текст' } },
       { event: 'EVENT_CELL_VALUE', params: { value: 42 } },
       { event: 'EVENT_CELL_VALUE', params: { value: true } },
       { event: 'EVENT_CELL_VALUE', params: { value: null } },
       { event: 'EVENT_CELL_VALUE', params: { value: 'Ссылка', ref: 'e1cib/data/Test?ref=custom' } },
-      { event: 'EVENT_SECOND', params: { value: 'Текст' } }
+      { event: 'EVENT_SECOND', params: { value: 'Текст' } },
+      { event: 'EVENT_SUBMENU', params: { value: 'Текст' } },
+      { event: 'EVENT_SUBMENU_LINK', params: { value: 'Ссылка', ref: 'e1cib/data/Test?ref=custom' } }
     ]);
 
     await page.evaluate(function () {
@@ -1108,6 +1165,7 @@ async function main() {
       return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1;
     }), true);
     assert.strictEqual(await page.evaluate(function () { window.setTheme('dark'); return window.destroy(); }), true);
+    assert.strictEqual(await page.evaluate(function () { return window.addContextMenuSubmenu('После destroy'); }), false);
     assert.strictEqual(await page.evaluate(function () { return window.addContextMenuItem('После destroy', 'EVENT_AFTER_DESTROY'); }), false);
     assert.strictEqual(await page.evaluate(function () { return window.addContextMenuSeparator(); }), false);
     assert.deepStrictEqual(await page.evaluate(function () {
