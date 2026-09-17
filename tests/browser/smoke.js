@@ -834,10 +834,14 @@ async function main() {
         window.addContextMenuItem('Пустое событие', '   '),
         window.addContextMenuItem(null, 'EVENT_NULL_TITLE'),
         window.addContextMenuItem('Некорректное событие', null),
+        window.addContextMenuSeparator(),
         window.addContextMenuItem('<img src=x onerror=alert(1)>', 'EVENT_CELL_VALUE'),
-        window.addContextMenuItem('Вторая команда', 'EVENT_SECOND')
+        window.addContextMenuSeparator(),
+        window.addContextMenuSeparator(),
+        window.addContextMenuItem('Вторая команда', 'EVENT_SECOND'),
+        window.addContextMenuSeparator()
       ];
-    }), [false, false, false, false, true, true]);
+    }), [false, false, false, false, true, true, true, true, true, true]);
     await page.evaluate(function () {
       window.setData({ tables: [
         { name: 'Пользовательские события', columns: ['Значение'], rows: [
@@ -860,12 +864,12 @@ async function main() {
       });
     }), [
       'Отбор по значению', 'separator', 'Зафиксировать строку|Зафиксировать колонку', 'separator',
-      'Сворачивание', 'separator', '<img src=x onerror=alert(1)>|Вторая команда'
+      'Сворачивание', 'separator', '<img src=x onerror=alert(1)>', 'separator', 'Вторая команда'
     ]);
     assert.strictEqual(await page.$$eval('.context-menu img', function (nodes) { return nodes.length; }), 0);
     await page.click('.table-card[data-table-index="1"] [data-row-id="0"] .data-cell', { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 2);
-    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 4);
+    assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 5);
     await page.click('.table-card[data-table-index="0"] [data-row-id="0"] .number-cell', { button: 'right' });
     assert.strictEqual(await page.$$eval('.context-menu .custom-menu-item', function (nodes) { return nodes.length; }), 0);
     assert.strictEqual(await page.$$eval('body > .context-menu > .menu-separator', function (nodes) { return nodes.length; }), 1);
@@ -1105,6 +1109,7 @@ async function main() {
     }), true);
     assert.strictEqual(await page.evaluate(function () { window.setTheme('dark'); return window.destroy(); }), true);
     assert.strictEqual(await page.evaluate(function () { return window.addContextMenuItem('После destroy', 'EVENT_AFTER_DESTROY'); }), false);
+    assert.strictEqual(await page.evaluate(function () { return window.addContextMenuSeparator(); }), false);
     assert.deepStrictEqual(await page.evaluate(function () {
       return [
         window.setNegativeNumberColor('red'),

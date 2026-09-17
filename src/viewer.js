@@ -333,7 +333,7 @@ function ViewerApp(root) {
   this.themeButton = null;
   this.themeGroup = null;
   this.themeButtonHidden = false;
-  this.customContextMenuItems = [];
+  this.customContextMenuEntries = [];
   this.displaySettings = model.makeDisplaySettings();
   this.onDocumentMouseUp = this.stopSelection.bind(this);
   this.onDocumentMouseDown = this.onOutsidePointer.bind(this);
@@ -725,7 +725,12 @@ ViewerApp.prototype.closeFilterPanel = function () {
 
 ViewerApp.prototype.addContextMenuItem = function (title, eventName) {
   if (typeof title !== 'string' || !title.trim() || typeof eventName !== 'string' || !eventName.trim()) return false;
-  this.customContextMenuItems.push({ title: title, eventName: eventName });
+  this.customContextMenuEntries.push({ type: 'item', title: title, eventName: eventName });
+  return true;
+};
+
+ViewerApp.prototype.addContextMenuSeparator = function () {
+  this.customContextMenuEntries.push({ type: 'separator' });
   return true;
 };
 
@@ -918,13 +923,19 @@ ViewerApp.prototype.openMenu = function (view, entry, columnIndex, x, y) {
   if (columnIndex >= 0) {
     var customGroup = menuGroup();
     var value = entry.row.columns[columnIndex];
-    for (var itemIndex = 0; itemIndex < this.customContextMenuItems.length; itemIndex += 1) {
+    for (var itemIndex = 0; itemIndex < this.customContextMenuEntries.length; itemIndex += 1) {
+      var customEntry = this.customContextMenuEntries[itemIndex];
+      if (customEntry.type === 'separator') {
+        appendMenuGroup(menu, customGroup);
+        customGroup = menuGroup();
+        continue;
+      }
       (function (item) {
         addMenuItem(customGroup, item.title, function () {
           var params = model.isLinkCell(value) ? { value: value.label, ref: value.ref } : { value: value };
           self.closeMenu(); self.bridge.send(item.eventName, params);
         }, 'custom-menu-item');
-      })(this.customContextMenuItems[itemIndex]);
+      })(customEntry);
     }
     appendMenuGroup(menu, customGroup);
   }
@@ -1725,6 +1736,7 @@ function installPublicApi() {
   window.expandAll = function () { if (!currentApp) return false; currentApp.expandAll(); return true; };
   window.collapseAll = function () { if (!currentApp) return false; currentApp.collapseAll(); return true; };
   window.addContextMenuItem = function (title, eventName) { return currentApp ? currentApp.addContextMenuItem(title, eventName) : false; };
+  window.addContextMenuSeparator = function () { return currentApp ? currentApp.addContextMenuSeparator() : false; };
   window.setNegativeNumberColor = function (color) { return currentApp ? currentApp.setNegativeNumberColor(color) : false; };
   window.setCellValuePresentation = function (value, presentation) { return currentApp ? currentApp.setCellValuePresentation(value, presentation) : false; };
   window.setCellValueColor = function (value, color) { return currentApp ? currentApp.setCellValueColor(value, color) : false; };

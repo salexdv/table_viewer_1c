@@ -1,7 +1,7 @@
 ---
 issue: -
 title: Пользовательские разделители контекстного меню
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-09-17
 updated: 2026-09-17
