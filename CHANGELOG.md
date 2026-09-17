@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/salexdv/table_viewer_1c/compare/v1.0.0...v1.1.0) (2026-09-17)
+
+
+### Новые возможности
+
+* **api:** добавить пользовательские подменю ([dfdc947](https://github.com/salexdv/table_viewer_1c/commit/dfdc9474ed95473a1db6dfff591474d717d2a04c))
+* **api:** добавить разделители контекстного меню ([85a95e5](https://github.com/salexdv/table_viewer_1c/commit/85a95e54bdb8f721641d01b8e2730c2c57a0b606))
+* **api:** добавить скрытие кнопки темы ([08425af](https://github.com/salexdv/table_viewer_1c/commit/08425afe5d65d77179993a7cd117057ae4205cdc))
+* **api:** сохранять фиксацию в настройках ([693f0f3](https://github.com/salexdv/table_viewer_1c/commit/693f0f3ae4acf13a1e0937a02a5b02d2b1f43936))
+* **theme:** добавить тёмную тему и API переключения ([8ff12ff](https://github.com/salexdv/table_viewer_1c/commit/8ff12ffef990b51c00b0e370bceac85e9d69bd7c))
+* **ui:** добавить сброс фиксации и кнопки уровней ([c7f795b](https://github.com/salexdv/table_viewer_1c/commit/c7f795bb8e79959ff0f99d456c959e66ff1359aa))
+
 ## 1.0.0 (2026-09-16)
 
 
