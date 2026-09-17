@@ -138,6 +138,7 @@ npx @puppeteer/browsers@2.13.2 install chrome-headless-shell@stable --path .cach
 - [Интеграция с 1С и ручной чек-лист](docs/1c-integration.md)
 - [Завершённая спецификация](specs/done/table-viewer/spec.md)
 - [Спецификация пользовательских команд меню](specs/done/custom-context-menu-events/spec.md)
+- [Спецификация пользовательских подменю](specs/done/context-menu-submenus/spec.md)
 - [Спецификация групп контекстного меню](specs/done/context-menu-groups/spec.md)
 - [Правила SDD проекта](specs/README.md)
 
