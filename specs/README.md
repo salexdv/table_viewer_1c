@@ -30,6 +30,8 @@
 - [`auto-hide-scrollbars`](done/auto-hide-scrollbars/spec.md) — показ полос прокрутки при наведении или прокрутке.
 - [`custom-context-menu-events`](done/custom-context-menu-events/spec.md) — пользовательские команды контекстного
   меню с передачей значения ячейки в событиях 1С.
+- [`context-menu-separators`](done/context-menu-separators/spec.md) — пользовательские разделители контекстного
+  меню через публичный API.
 - [`context-menu-groups`](done/context-menu-groups/spec.md) — группы и подменю контекстного меню, скрытие строк и
   уровни дерева.
 - [`toolbar-selection-aggregates`](done/toolbar-selection-aggregates/spec.md) — группы общей панели, увеличенные
