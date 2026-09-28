@@ -57,3 +57,5 @@
   темы в Settings.
 - [`hide-theme-button-api`](done/hide-theme-button-api/spec.md) — одностороннее скрытие кнопки темы через
   публичный API.
+- [`nested-table-tabs`](done/nested-table-tabs/spec.md) — вложенные таблицы произвольной глубины в закрываемых
+  вкладках без изменения событийного контракта 1С.
