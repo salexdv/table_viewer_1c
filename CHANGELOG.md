@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/salexdv/table_viewer_1c/compare/v1.1.0...v1.2.0) (2026-09-28)
+
+
+### Новые возможности
+
+* **grid:** добавить вкладки вложенных таблиц ([78ec1a2](https://github.com/salexdv/table_viewer_1c/commit/78ec1a24eb96cb618175cde8db6d096482506258))
+* **grid:** добавить модель вложенных таблиц ([1194741](https://github.com/salexdv/table_viewer_1c/commit/119474179f35448e605eb0b51a3a8b175694db00))
+
 ## [1.1.0](https://github.com/salexdv/table_viewer_1c/compare/v1.0.0...v1.1.0) (2026-09-17)
 
 
