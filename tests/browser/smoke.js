@@ -831,14 +831,16 @@ async function main() {
 
     await page.evaluate(function () {
       function nestedTable(value, withDetails) {
+        var rows = [{ columns: [value, withDetails ? {
+          label: 'Открыть детали',
+          table: { id: 'details', name: '', columns: ['Описание'], rows: [{ columns: ['Глубокая таблица'] }] }
+        } : 'Нет'] }];
+        for (var index = 1; index < 80; index += 1) rows.push({ columns: [value + ' ' + index, 'Нет'] });
         return {
           id: 'same-lines',
           name: 'Товары',
           columns: ['Значение', 'Детали'],
-          rows: [{ columns: [value, withDetails ? {
-            label: 'Открыть детали',
-            table: { id: 'details', name: '', columns: ['Описание'], rows: [{ columns: ['Глубокая таблица'] }] }
-          } : 'Нет'] }]
+          rows: rows
         };
       }
       window.init({ tables: [{
@@ -881,6 +883,11 @@ async function main() {
     await page.click('[data-row-id="0"] .cell-table-link');
     assert.strictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.length; }), 3, 'Повторный клик не должен создавать вкладку');
     assert.strictEqual(await page.$eval('.global-search', function (node) { return node.value; }), 'Первая');
+    await page.$eval('.grid-viewport', function (node) { node.scrollTop = 300; node.dispatchEvent(new Event('scroll')); });
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
+    await page.click('[data-row-id="0"] .cell-table-link');
+    assert.ok(await page.$eval('.grid-viewport', function (node) { return node.scrollTop; }) >= 250, 'Вкладка должна сохранять прокрутку');
 
     await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
     await page.click('[data-row-id="1"] .cell-table-link');
