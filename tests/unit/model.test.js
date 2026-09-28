@@ -34,6 +34,71 @@ describe('модель данных', function () {
     }, '$.tables[0].rows[0].columns[0]');
   });
 
+  it('разбирает вложенные таблицы произвольной глубины и использует label как текст', function () {
+    const data = model.parseData({ tables: [{
+      id: 'root',
+      name: 'Документы',
+      columns: ['Товары'],
+      rows: [{ columns: [{ label: 'ТаблицаЗначений', table: {
+        id: 'lines',
+        name: 'Товары',
+        columns: ['Партии'],
+        rows: [{ columns: [{ label: 'Расшифровка', table: {
+          id: 'details',
+          name: 'Партии',
+          columns: ['Значение'],
+          rows: [{ columns: ['Строка'] }]
+        } }] }]
+      } }] }]
+    }] });
+    const first = data.tables[0].rows[0].columns[0];
+    const second = first.table.rows[0].columns[0];
+    assert.isTrue(model.isTableCell(first));
+    assert.isTrue(model.isTableCell(second));
+    assert.equal(model.cellText(first), 'ТаблицаЗначений');
+    assert.isTrue(model.matchesSearch(first, 'таблица знач'));
+    assert.equal(second.table.rows[0].columns[0], 'Строка');
+    assert.deepEqual(data.tables[0].columnTypes, ['text']);
+  });
+
+  it('не смешивает одинаковые id вложенных таблиц из разных ячеек', function () {
+    const nested = function (value) {
+      return { label: 'Открыть', table: { id: 'same', name: 'Строки', columns: ['Значение'], rows: [{ columns: [value] }] } };
+    };
+    const data = model.parseData(tableData([
+      { columns: [nested('Первая')] },
+      { columns: [nested('Вторая')] }
+    ]));
+    const first = data.tables[0].rows[0].columns[0].table;
+    const second = data.tables[0].rows[1].columns[0].table;
+    assert.equal(first.id, 'same');
+    assert.equal(second.id, 'same');
+    assert.notStrictEqual(first, second);
+    assert.equal(first.rows[0].columns[0], 'Первая');
+    assert.equal(second.rows[0].columns[0], 'Вторая');
+  });
+
+  it('проверяет конфликт вариантов и ошибки внутри вложенной таблицы по полному пути', function () {
+    assert.throws(function () {
+      model.parseData(tableData([{ columns: [{ label: 'Ошибка', ref: 'ref', table: {} }] }]));
+    }, '$.tables[0].rows[0].columns[0]: поля ref и table взаимоисключающие');
+    assert.throws(function () {
+      model.parseData(tableData([{ columns: [{ label: 'Ошибка', table: {
+        name: 'Вложенная', columns: ['A', 'B'], rows: [{ columns: ['Одна'] }]
+      } }] }]));
+    }, '$.tables[0].rows[0].columns[0].table.rows[0].columns: ожидалось 2 ячеек');
+  });
+
+  it('отклоняет циклические ссылки таблиц и строк в JS-объектах', function () {
+    const table = { name: 'Цикл таблицы', columns: ['Значение'], rows: [] };
+    table.rows.push({ columns: [{ label: 'Назад', table: table }] });
+    assert.throws(function () { model.parseData({ tables: [table] }); }, 'обнаружена циклическая ссылка на таблицу');
+
+    const row = { columns: ['Цикл'], children: [] };
+    row.children.push(row);
+    assert.throws(function () { model.parseData(tableData([row])); }, 'обнаружена циклическая ссылка на строку');
+  });
+
   it('разбирает идентификаторы и встроенные настройки без нарушения старого формата', function () {
     const legacy = model.parseData(tableData([{ columns: ['Значение'] }]));
     assert.isUndefined(legacy.tables[0].id);

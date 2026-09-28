@@ -16,7 +16,11 @@ function isObject(value) {
 }
 
 function isLinkCell(value) {
-  return isObject(value) && typeof value.label === 'string' && typeof value.ref === 'string';
+  return isObject(value) && typeof value.label === 'string' && typeof value.ref === 'string' && !hasOwn(value, 'table');
+}
+
+function isTableCell(value) {
+  return isObject(value) && typeof value.label === 'string' && isObject(value.table) && !hasOwn(value, 'ref');
 }
 
 var EMPTY_REFERENCE_COLOR = '#6d7d91';
@@ -80,14 +84,41 @@ function resolveCellDisplay(value, settings) {
   return { text: text, color: color, isLink: isLinkCell(value), isEmptyReference: false };
 }
 
-function validateCell(value, path) {
+function containsReference(values, value) {
+  for (var index = 0; index < values.length; index += 1) if (values[index] === value) return true;
+  return false;
+}
+
+function validateCell(value, path, tableTasks, tableAncestors) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
     if (!isFinite(value)) fail(path, 'число должно быть конечным');
     return value;
   }
-  if (isLinkCell(value)) return { label: value.label, ref: value.ref };
-  fail(path, 'ожидалось простое значение или объект { label, ref }');
+  if (!isObject(value)) fail(path, 'ожидалось простое значение, объект { label, ref } или { label, table }');
+  var hasRef = hasOwn(value, 'ref');
+  var hasTable = hasOwn(value, 'table');
+  if (hasRef && hasTable) fail(path, 'поля ref и table взаимоисключающие');
+  if (typeof value.label !== 'string') fail(path + '.label', 'ожидалась строка');
+  if (hasRef) {
+    if (typeof value.ref !== 'string') fail(path + '.ref', 'ожидалась строка');
+    return { label: value.label, ref: value.ref };
+  }
+  if (hasTable) {
+    if (!isObject(value.table)) fail(path + '.table', 'ожидался объект таблицы');
+    if (containsReference(tableAncestors, value.table)) fail(path + '.table', 'обнаружена циклическая ссылка на таблицу');
+    var tableCell = { label: value.label, table: null };
+    tableTasks.push({
+      raw: value.table,
+      path: path + '.table',
+      target: tableCell,
+      key: 'table',
+      ancestors: tableAncestors,
+      root: false
+    });
+    return tableCell;
+  }
+  fail(path, 'ожидалось простое значение, объект { label, ref } или { label, table }');
 }
 
 function validateKnownFields(value, allowed, path) {
@@ -285,6 +316,106 @@ function parseViewSettings(input) {
   return parseViewSettingsObject(source, '$');
 }
 
+function parseTableTask(task, tableTasks, parsedTables, rootTableIds) {
+  var rawTable = task.raw;
+  var tablePath = task.path;
+  if (!isObject(rawTable)) fail(tablePath, 'ожидался объект');
+  if (typeof rawTable.name !== 'string') fail(tablePath + '.name', 'ожидалась строка');
+  if (!Array.isArray(rawTable.columns)) fail(tablePath + '.columns', 'ожидался массив колонок');
+  if (!Array.isArray(rawTable.rows)) fail(tablePath + '.rows', 'ожидался массив');
+
+  var tableId;
+  if (hasOwn(rawTable, 'id')) {
+    tableId = validateIdentifier(rawTable.id, tablePath + '.id');
+    if (task.root) {
+      if (hasOwn(rootTableIds, tableId)) fail(tablePath + '.id', 'идентификатор таблицы повторяется');
+      rootTableIds[tableId] = true;
+    }
+  }
+
+  var columnIds = [];
+  var seenColumnIds = Object.create(null);
+  var columns = rawTable.columns.map(function (column, columnIndex) {
+    var columnPath = tablePath + '.columns[' + columnIndex + ']';
+    if (typeof column === 'string') {
+      columnIds.push(null);
+      return column;
+    }
+    if (!isObject(column)) fail(columnPath, 'ожидалась строка или объект { id, name }');
+    validateKnownFields(column, { id: true, name: true }, columnPath);
+    var columnId = validateIdentifier(column.id, columnPath + '.id');
+    if (typeof column.name !== 'string') fail(columnPath + '.name', 'ожидалась строка');
+    if (hasOwn(seenColumnIds, columnId)) fail(columnPath + '.id', 'идентификатор колонки повторяется');
+    seenColumnIds[columnId] = true;
+    columnIds.push(columnId);
+    return column.name;
+  });
+
+  var roots = new Array(rawTable.rows.length);
+  var table = { id: tableId, name: rawTable.name, columns: columns, columnIds: columnIds, rows: roots, isTree: false, nodeCount: 0 };
+  task.target[task.key] = table;
+  parsedTables.push(table);
+
+  var tableAncestors = task.ancestors.concat([rawTable]);
+  var activeRows = new WeakSet();
+  var stack = [];
+  for (var rootIndex = rawTable.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
+    stack.push({
+      raw: rawTable.rows[rootIndex],
+      target: roots,
+      targetIndex: rootIndex,
+      path: tablePath + '.rows[' + rootIndex + ']',
+      id: String(rootIndex),
+      originalIndex: rootIndex
+    });
+  }
+
+  while (stack.length) {
+    var item = stack.pop();
+    if (item.exit) {
+      activeRows.delete(item.raw);
+      continue;
+    }
+    if (!isObject(item.raw)) fail(item.path, 'ожидался объект строки');
+    if (activeRows.has(item.raw)) fail(item.path, 'обнаружена циклическая ссылка на строку');
+    if (!Array.isArray(item.raw.columns)) fail(item.path + '.columns', 'ожидался массив');
+    if (item.raw.columns.length !== columns.length) {
+      fail(item.path + '.columns', 'ожидалось ' + columns.length + ' ячеек, получено ' + item.raw.columns.length);
+    }
+    if (item.raw.children !== undefined && !Array.isArray(item.raw.children)) {
+      fail(item.path + '.children', 'ожидался массив');
+    }
+
+    activeRows.add(item.raw);
+    stack.push({ exit: true, raw: item.raw });
+    var cells = item.raw.columns.map(function (cell, cellIndex) {
+      return validateCell(cell, item.path + '.columns[' + cellIndex + ']', tableTasks, tableAncestors);
+    });
+    var rawChildren = item.raw.children || [];
+    var children = new Array(rawChildren.length);
+    var node = {
+      id: item.id,
+      originalIndex: item.originalIndex,
+      columns: cells,
+      children: children
+    };
+    item.target[item.targetIndex] = node;
+    table.nodeCount += 1;
+    if (rawChildren.length) table.isTree = true;
+
+    for (var childIndex = rawChildren.length - 1; childIndex >= 0; childIndex -= 1) {
+      stack.push({
+        raw: rawChildren[childIndex],
+        target: children,
+        targetIndex: childIndex,
+        path: item.path + '.children[' + childIndex + ']',
+        id: item.id + '.' + childIndex,
+        originalIndex: childIndex
+      });
+    }
+  }
+}
+
 function parseData(input) {
   var source = input;
   if (typeof input === 'string') {
@@ -298,95 +429,23 @@ function parseData(input) {
   if (!isObject(source)) fail('$', 'ожидался объект');
   if (!Array.isArray(source.tables)) fail('$.tables', 'ожидался массив');
 
-  var tables = [];
-  var tableIds = Object.create(null);
-  for (var tableIndex = 0; tableIndex < source.tables.length; tableIndex += 1) {
-    var rawTable = source.tables[tableIndex];
-    var tablePath = '$.tables[' + tableIndex + ']';
-    if (!isObject(rawTable)) fail(tablePath, 'ожидался объект');
-    if (typeof rawTable.name !== 'string') fail(tablePath + '.name', 'ожидалась строка');
-    if (!Array.isArray(rawTable.columns)) fail(tablePath + '.columns', 'ожидался массив колонок');
-    if (!Array.isArray(rawTable.rows)) fail(tablePath + '.rows', 'ожидался массив');
-
-    var tableId;
-    if (hasOwn(rawTable, 'id')) {
-      tableId = validateIdentifier(rawTable.id, tablePath + '.id');
-      if (hasOwn(tableIds, tableId)) fail(tablePath + '.id', 'идентификатор таблицы повторяется');
-      tableIds[tableId] = true;
-    }
-
-    var columnIds = [];
-    var seenColumnIds = Object.create(null);
-    var columns = rawTable.columns.map(function (column, columnIndex) {
-      var columnPath = tablePath + '.columns[' + columnIndex + ']';
-      if (typeof column === 'string') {
-        columnIds.push(null);
-        return column;
-      }
-      if (!isObject(column)) fail(columnPath, 'ожидалась строка или объект { id, name }');
-      validateKnownFields(column, { id: true, name: true }, columnPath);
-      var columnId = validateIdentifier(column.id, columnPath + '.id');
-      if (typeof column.name !== 'string') fail(columnPath + '.name', 'ожидалась строка');
-      if (hasOwn(seenColumnIds, columnId)) fail(columnPath + '.id', 'идентификатор колонки повторяется');
-      seenColumnIds[columnId] = true;
-      columnIds.push(columnId);
-      return column.name;
+  var tables = new Array(source.tables.length);
+  var tableTasks = [];
+  for (var tableIndex = source.tables.length - 1; tableIndex >= 0; tableIndex -= 1) {
+    tableTasks.push({
+      raw: source.tables[tableIndex],
+      path: '$.tables[' + tableIndex + ']',
+      target: tables,
+      key: tableIndex,
+      ancestors: [],
+      root: true
     });
-    var roots = new Array(rawTable.rows.length);
-    var table = { id: tableId, name: rawTable.name, columns: columns, columnIds: columnIds, rows: roots, isTree: false, nodeCount: 0 };
-    var stack = [];
-
-    for (var rootIndex = rawTable.rows.length - 1; rootIndex >= 0; rootIndex -= 1) {
-      stack.push({
-        raw: rawTable.rows[rootIndex],
-        target: roots,
-        targetIndex: rootIndex,
-        path: tablePath + '.rows[' + rootIndex + ']',
-        id: String(rootIndex),
-        originalIndex: rootIndex
-      });
-    }
-
-    while (stack.length) {
-      var item = stack.pop();
-      if (!isObject(item.raw)) fail(item.path, 'ожидался объект строки');
-      if (!Array.isArray(item.raw.columns)) fail(item.path + '.columns', 'ожидался массив');
-      if (item.raw.columns.length !== columns.length) {
-        fail(item.path + '.columns', 'ожидалось ' + columns.length + ' ячеек, получено ' + item.raw.columns.length);
-      }
-      if (item.raw.children !== undefined && !Array.isArray(item.raw.children)) {
-        fail(item.path + '.children', 'ожидался массив');
-      }
-
-      var cells = item.raw.columns.map(function (cell, cellIndex) {
-        return validateCell(cell, item.path + '.columns[' + cellIndex + ']');
-      });
-      var rawChildren = item.raw.children || [];
-      var children = new Array(rawChildren.length);
-      var node = {
-        id: item.id,
-        originalIndex: item.originalIndex,
-        columns: cells,
-        children: children
-      };
-      item.target[item.targetIndex] = node;
-      table.nodeCount += 1;
-      if (rawChildren.length) table.isTree = true;
-
-      for (var childIndex = rawChildren.length - 1; childIndex >= 0; childIndex -= 1) {
-        stack.push({
-          raw: rawChildren[childIndex],
-          target: children,
-          targetIndex: childIndex,
-          path: item.path + '.children[' + childIndex + ']',
-          id: item.id + '.' + childIndex,
-          originalIndex: childIndex
-        });
-      }
-    }
-
-    table.columnTypes = detectColumnTypes(table);
-    tables.push(table);
+  }
+  var parsedTables = [];
+  var rootTableIds = Object.create(null);
+  while (tableTasks.length) parseTableTask(tableTasks.pop(), tableTasks, parsedTables, rootTableIds);
+  for (var parsedIndex = 0; parsedIndex < parsedTables.length; parsedIndex += 1) {
+    parsedTables[parsedIndex].columnTypes = detectColumnTypes(parsedTables[parsedIndex]);
   }
 
   var result = { tables: tables };
@@ -396,7 +455,7 @@ function parseData(input) {
 
 function cellText(value) {
   if (value === null || value === undefined) return '';
-  if (isLinkCell(value)) return value.label;
+  if (isLinkCell(value) || isTableCell(value)) return value.label;
   if (value === true) return 'Да';
   if (value === false) return 'Нет';
   return String(value);
@@ -1230,6 +1289,7 @@ module.exports = {
   matchesSearch: matchesSearch,
   findSearchHighlightRanges: findSearchHighlightRanges,
   isLinkCell: isLinkCell,
+  isTableCell: isTableCell,
   EMPTY_REFERENCE_COLOR: EMPTY_REFERENCE_COLOR,
   scalarValueKey: scalarValueKey,
   setScalarRule: setScalarRule,
