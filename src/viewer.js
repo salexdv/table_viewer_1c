@@ -123,7 +123,9 @@ function appendCustomMenuEntries(app, menu, entries, value) {
     }
     (function (item) {
       addMenuItem(group, item.title, function () {
-        var params = model.isLinkCell(value) ? { value: value.label, ref: value.ref } : { value: value };
+        var params = model.isLinkCell(value)
+          ? { value: value.label, ref: value.ref }
+          : { value: model.isTableCell(value) ? value.label : value };
         app.closeMenu(); app.bridge.send(item.eventName, params);
       }, 'custom-menu-item');
     })(entry);
@@ -349,6 +351,10 @@ function ViewerApp(root) {
   this.root = root;
   this.data = { tables: [] };
   this.states = [];
+  this.tabs = [];
+  this.rootTab = null;
+  this.activeTab = null;
+  this.nextTabId = 1;
   this.tableViews = [];
   this.globalFilter = '';
   this.draggingView = null;
@@ -382,6 +388,68 @@ function ViewerApp(root) {
   window.addEventListener('scroll', this.onWindowScroll);
 }
 
+ViewerApp.prototype.rootTabTitle = function (data) {
+  if (data.tables.length === 1 && String(data.tables[0].name || '').trim()) return data.tables[0].name;
+  return 'Основные таблицы';
+};
+
+ViewerApp.prototype.nestedTabTitle = function (value) {
+  var tableName = String(value.table.name || '').trim();
+  if (tableName) return value.table.name;
+  var label = String(value.label || '').trim();
+  return label ? value.label : 'Таблица';
+};
+
+ViewerApp.prototype.bindTab = function (tab) {
+  this.activeTab = tab;
+  this.data = tab.data;
+  this.states = tab.states;
+  this.globalFilter = tab.globalFilter;
+};
+
+ViewerApp.prototype.cancelTableViews = function () {
+  if (this.layoutFrame) cancelFrame(this.layoutFrame);
+  this.layoutFrame = null;
+  for (var index = 0; index < this.tableViews.length; index += 1) this.tableViews[index].cancelScheduledRender();
+};
+
+ViewerApp.prototype.captureActiveTab = function () {
+  if (!this.activeTab) return;
+  this.activeTab.globalFilter = this.globalFilter;
+  this.activeTab.scrollPositions = [];
+  for (var index = 0; index < this.tableViews.length; index += 1) {
+    var viewport = this.tableViews[index].viewport;
+    this.activeTab.scrollPositions[index] = viewport
+      ? { top: viewport.scrollTop, left: viewport.scrollLeft }
+      : { top: 0, left: 0 };
+  }
+  this.cancelTableViews();
+};
+
+ViewerApp.prototype.prepareTabChange = function () {
+  this.captureActiveTab();
+  if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
+  this.globalSearchTimer = null;
+  this.closeMenu();
+  this.closeColumnPanel();
+  this.closeFilterPanel();
+  this.closeSelectionPopup();
+  this.draggingView = null;
+};
+
+ViewerApp.prototype.makeRootTab = function (data, states, globalFilter) {
+  return {
+    id: 'root',
+    sourceKey: 'root',
+    title: this.rootTabTitle(data),
+    data: data,
+    states: states,
+    globalFilter: globalFilter,
+    scrollPositions: [],
+    closeable: false
+  };
+};
+
 ViewerApp.prototype.load = function (input) {
   try {
     var source = input;
@@ -405,11 +473,12 @@ ViewerApp.prototype.load = function (input) {
       nextGlobalFilter = applied.globalFilter;
       nextTheme = applied.theme;
     }
-    if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
-    this.globalSearchTimer = null;
-    this.data = nextData;
-    this.states = nextStates;
-    this.globalFilter = nextGlobalFilter;
+    this.prepareTabChange();
+    this.tabs = [];
+    this.nextTabId = 1;
+    this.rootTab = this.makeRootTab(nextData, nextStates, nextGlobalFilter);
+    this.tabs.push(this.rootTab);
+    this.bindTab(this.rootTab);
     this.theme = nextTheme;
     this.selectionResults = null;
     if (applied) this.reportSettingsWarnings(applied.warnings);
@@ -428,13 +497,26 @@ ViewerApp.prototype.reportSettingsWarnings = function (warnings) {
 };
 
 ViewerApp.prototype.getSettings = function () {
-  return JSON.stringify(model.getViewSettings(this.data, this.states, this.globalFilter, this.theme));
+  if (!this.rootTab) return false;
+  return JSON.stringify(model.getViewSettings(
+    this.rootTab.data,
+    this.rootTab.states,
+    this.rootTab.globalFilter,
+    this.theme
+  ));
 };
 
 ViewerApp.prototype.setSettings = function (input) {
   try {
+    if (!this.rootTab) return false;
     var settings = model.parseViewSettings(input);
-    var applied = model.applyViewSettings(this.data, this.states, this.globalFilter, settings, this.theme);
+    var applied = model.applyViewSettings(
+      this.rootTab.data,
+      this.rootTab.states,
+      this.rootTab.globalFilter,
+      settings,
+      this.theme
+    );
     for (var index = 0; index < applied.states.length; index += 1) applied.states[index].selection = null;
     this.closeMenu();
     this.closeColumnPanel();
@@ -442,14 +524,17 @@ ViewerApp.prototype.setSettings = function (input) {
     this.closeSelectionPopup();
     if (this.globalSearchTimer) clearTimeout(this.globalSearchTimer);
     this.globalSearchTimer = null;
-    this.states = applied.states;
-    this.globalFilter = applied.globalFilter;
+    this.rootTab.states = applied.states;
+    this.rootTab.globalFilter = applied.globalFilter;
     this.theme = applied.theme;
     this.draggingView = null;
     this.selectionResults = null;
     this.reportSettingsWarnings(applied.warnings);
     this.applyTheme();
-    this.render();
+    if (this.activeTab === this.rootTab) {
+      this.bindTab(this.rootTab);
+      this.render();
+    }
     return true;
   } catch (error) {
     if (window.console && console.error) console.error(error);
@@ -465,6 +550,7 @@ ViewerApp.prototype.showWaiting = function () {
 };
 
 ViewerApp.prototype.showError = function (error) {
+  this.cancelTableViews();
   clear(this.root);
   var box = element('section', 'error-box');
   box.setAttribute('role', 'alert');
@@ -484,6 +570,7 @@ ViewerApp.prototype.render = function () {
   addSearchControl(toolbar, 'global-search-control', 'global-search', 'Поиск по всем таблицам…', 'Глобальный поиск', 'Очистить глобальный поиск', this.globalFilter, function (value) {
     if (self.globalSearchTimer) clearTimeout(self.globalSearchTimer);
     self.globalFilter = value;
+    if (self.activeTab) self.activeTab.globalFilter = value;
     self.globalSearchTimer = setTimeout(function () {
       self.globalSearchTimer = null;
       self.resetRowRanges();
@@ -514,8 +601,8 @@ ViewerApp.prototype.render = function () {
   commands.appendChild(themeGroup);
   this.updateThemeButton();
   var globalGroup = element('div', 'toolbar-group toolbar-global-group');
-  addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(); }, 'icon-button command-icon-button collapse-all-button');
-  addIconButton(globalGroup, 'expand-all', 'Развернуть все', function () { self.expandAll(); }, 'icon-button command-icon-button expand-all-button');
+  addIconButton(globalGroup, 'collapse-all', 'Свернуть все', function () { self.collapseAll(self.activeTab); }, 'icon-button command-icon-button collapse-all-button');
+  addIconButton(globalGroup, 'expand-all', 'Развернуть все', function () { self.expandAll(self.activeTab); }, 'icon-button command-icon-button expand-all-button');
   addButton(globalGroup, 'Экспорт', 'Передать в 1С команду экспорта', function () { self.bridge.send('EVENT_EXPORT', {}); }, 'button button-primary export-button export-button-temporarily-hidden');
   commands.appendChild(globalGroup);
   var selectionGroup = element('div', 'toolbar-group toolbar-selection-group');
@@ -530,6 +617,7 @@ ViewerApp.prototype.render = function () {
   commands.appendChild(selectionGroup);
   toolbar.appendChild(commands);
   this.root.appendChild(toolbar);
+  this.renderTabs();
   this.tablesHost = element('main', 'tables-host');
   this.root.appendChild(this.tablesHost);
   if (!this.data.tables.length) {
@@ -541,8 +629,94 @@ ViewerApp.prototype.render = function () {
     this.tableViews.push(view);
     this.tablesHost.appendChild(view.card);
     view.renderGrid();
+    if (view.state.collapsed) view.updateCollapsed();
   }
   this.updateTableLayouts();
+  if (this.activeTab) {
+    for (var positionIndex = 0; positionIndex < this.tableViews.length; positionIndex += 1) {
+      var position = this.activeTab.scrollPositions[positionIndex];
+      var currentView = this.tableViews[positionIndex];
+      if (!position || !currentView.viewport) continue;
+      currentView.viewport.scrollTop = position.top;
+      currentView.viewport.scrollLeft = position.left;
+      currentView.renderVirtualRows(true);
+    }
+  }
+};
+
+ViewerApp.prototype.renderTabs = function () {
+  if (this.tabs.length < 2) return;
+  var self = this;
+  var bar = element('nav', 'tabs-bar');
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', 'Открытые таблицы');
+  for (var index = 0; index < this.tabs.length; index += 1) {
+    (function (tab) {
+      var item = element('div', 'tab-item' + (tab === self.activeTab ? ' tab-item-active' : ''));
+      var button = addButton(item, tab.title, 'Перейти к таблице «' + tab.title + '»', function () {
+        self.activateTab(tab);
+      }, 'tab-button');
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', tab === self.activeTab ? 'true' : 'false');
+      if (tab === self.activeTab) button.setAttribute('tabindex', '0');
+      else button.setAttribute('tabindex', '-1');
+      if (tab.closeable) {
+        var close = addButton(item, '×', 'Закрыть вкладку «' + tab.title + '»', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          self.closeTab(tab);
+        }, 'tab-close-button');
+        close.setAttribute('aria-label', close.title);
+      }
+      bar.appendChild(item);
+    })(this.tabs[index]);
+  }
+  this.root.appendChild(bar);
+};
+
+ViewerApp.prototype.activateTab = function (tab) {
+  if (!tab || tab === this.activeTab || arrayIndex(this.tabs, tab) === -1) return false;
+  this.prepareTabChange();
+  this.bindTab(tab);
+  this.render();
+  return true;
+};
+
+ViewerApp.prototype.openTableCell = function (view, entry, columnIndex, value) {
+  if (!model.isTableCell(value) || !this.activeTab) return false;
+  var sourceKey = this.activeTab.id + ':' + view.tableIndex + ':' + entry.id + ':' + columnIndex;
+  for (var index = 0; index < this.tabs.length; index += 1) {
+    if (this.tabs[index].sourceKey === sourceKey) return this.activateTab(this.tabs[index]) || true;
+  }
+  var tabData = { tables: [value.table] };
+  var tab = {
+    id: 'nested-' + this.nextTabId,
+    sourceKey: sourceKey,
+    title: this.nestedTabTitle(value),
+    data: tabData,
+    states: [model.makeTableState(value.table)],
+    globalFilter: '',
+    scrollPositions: [],
+    closeable: true
+  };
+  this.nextTabId += 1;
+  this.tabs.push(tab);
+  this.prepareTabChange();
+  this.bindTab(tab);
+  this.render();
+  return true;
+};
+
+ViewerApp.prototype.closeTab = function (tab) {
+  var index = arrayIndex(this.tabs, tab);
+  if (index <= 0 || !tab.closeable) return false;
+  var wasActive = tab === this.activeTab;
+  this.prepareTabChange();
+  this.tabs.splice(index, 1);
+  if (wasActive) this.bindTab(this.tabs[index] || this.tabs[index - 1]);
+  else this.bindTab(this.activeTab);
+  this.render();
+  return true;
 };
 
 ViewerApp.prototype.toggleTextWrapping = function () {
@@ -1079,32 +1253,54 @@ ViewerApp.prototype.updateSelection = function (view) {
   this.renderSelectionPopup();
 };
 
-ViewerApp.prototype.expandAll = function () {
-  for (var index = 0; index < this.states.length; index += 1) { this.states[index].collapsed = false; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; this.states[index].hiddenRows = {}; }
-  this.clearSelection();
-  for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
+ViewerApp.prototype.clearTabSelection = function (tab) {
+  for (var index = 0; index < tab.states.length; index += 1) tab.states[index].selection = null;
+  if (tab === this.activeTab) this.clearSelection();
 };
-ViewerApp.prototype.collapseAll = function () {
-  for (var index = 0; index < this.states.length; index += 1) {
-    this.states[index].collapsed = true; this.states[index].collapsedRows = {}; this.states[index].rowWindow = null; this.states[index].hiddenRows = {};
-    var nodes = model.allNodes(this.data.tables[index]);
-    for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) if (nodes[nodeIndex].children.length) this.states[index].collapsedRows[nodes[nodeIndex].id] = true;
+
+ViewerApp.prototype.expandAll = function (tab) {
+  var target = tab || this.rootTab;
+  if (!target) return false;
+  for (var index = 0; index < target.states.length; index += 1) { target.states[index].collapsed = false; target.states[index].collapsedRows = {}; target.states[index].rowWindow = null; target.states[index].hiddenRows = {}; }
+  this.clearTabSelection(target);
+  if (target === this.activeTab) {
+    for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
   }
-  this.clearSelection();
-  for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
+  return true;
 };
-ViewerApp.prototype.setTableCollapsed = function (tableIndex, collapsed) {
-  if (!this.states[tableIndex]) return false;
-  this.states[tableIndex].collapsed = !!collapsed; this.states[tableIndex].rowWindow = null; this.states[tableIndex].hiddenRows = {}; this.clearSelection(); this.tableViews[tableIndex].updateCollapsed(); return true;
+ViewerApp.prototype.collapseAll = function (tab) {
+  var target = tab || this.rootTab;
+  if (!target) return false;
+  for (var index = 0; index < target.states.length; index += 1) {
+    target.states[index].collapsed = true; target.states[index].collapsedRows = {}; target.states[index].rowWindow = null; target.states[index].hiddenRows = {};
+    var nodes = model.allNodes(target.data.tables[index]);
+    for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) if (nodes[nodeIndex].children.length) target.states[index].collapsedRows[nodes[nodeIndex].id] = true;
+  }
+  this.clearTabSelection(target);
+  if (target === this.activeTab) {
+    for (var viewIndex = 0; viewIndex < this.tableViews.length; viewIndex += 1) this.tableViews[viewIndex].updateCollapsed();
+  }
+  return true;
 };
-ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded) {
-  if (!this.states[tableIndex]) return false;
-  var state = this.states[tableIndex]; state.collapsedRows = {}; state.rowWindow = null; state.hiddenRows = {};
+ViewerApp.prototype.setTableCollapsed = function (tableIndex, collapsed, tab) {
+  var target = tab || this.rootTab;
+  if (!target || !target.states[tableIndex]) return false;
+  var state = target.states[tableIndex];
+  state.collapsed = !!collapsed; state.rowWindow = null; state.hiddenRows = {}; this.clearTabSelection(target);
+  if (target === this.activeTab && this.tableViews[tableIndex]) this.tableViews[tableIndex].updateCollapsed();
+  return true;
+};
+ViewerApp.prototype.setTreeExpanded = function (tableIndex, expanded, tab) {
+  var target = tab || this.rootTab;
+  if (!target || !target.states[tableIndex]) return false;
+  var state = target.states[tableIndex]; state.collapsedRows = {}; state.rowWindow = null; state.hiddenRows = {};
   if (!expanded) {
-    var nodes = model.allNodes(this.data.tables[tableIndex]);
+    var nodes = model.allNodes(target.data.tables[tableIndex]);
     for (var index = 0; index < nodes.length; index += 1) if (nodes[index].children.length) state.collapsedRows[nodes[index].id] = true;
   }
-  this.clearSelection(); this.tableViews[tableIndex].refreshData(); return true;
+  this.clearTabSelection(target);
+  if (target === this.activeTab && this.tableViews[tableIndex]) this.tableViews[tableIndex].refreshData();
+  return true;
 };
 ViewerApp.prototype.activatePageScrollbar = function () {
   var self = this; var root = document.documentElement;
@@ -1132,7 +1328,8 @@ ViewerApp.prototype.destroy = function () {
   this.cancelPageScrollbar();
   this.closeMenu(); this.closeColumnPanel(); this.closeFilterPanel(); this.closeSelectionPopup(); this.bridge.destroy();
   this.wrapText = false; this.wrapTextButton = null; this.theme = 'light'; this.themeButton = null;
-  this.themeGroup = null; this.themeButtonHidden = false;
+  this.themeGroup = null; this.themeButtonHidden = false; this.tabs = []; this.rootTab = null; this.activeTab = null;
+  this.data = { tables: [] }; this.states = []; this.globalFilter = ''; this.tableViews = [];
   setClass(this.root, 'text-wrapping', false); setClass(document.documentElement, 'theme-dark', false); clear(this.root);
 };
 
@@ -1242,8 +1439,8 @@ TableView.prototype.createCard = function () {
       })(level);
     }
     treeCommands.appendChild(levelCommands);
-    addIconButton(treeCommands, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true); }, 'icon-button tree-command-button expand-tree-button');
-    addIconButton(treeCommands, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false); }, 'icon-button tree-command-button collapse-tree-button');
+    addIconButton(treeCommands, 'expand-tree', 'Раскрыть дерево', function () { self.app.setTreeExpanded(self.tableIndex, true, self.app.activeTab); }, 'icon-button tree-command-button expand-tree-button');
+    addIconButton(treeCommands, 'collapse-tree', 'Свернуть дерево', function () { self.app.setTreeExpanded(self.tableIndex, false, self.app.activeTab); }, 'icon-button tree-command-button collapse-tree-button');
     titlebar.appendChild(treeCommands);
   }
   var scaleLabel = element('label', 'scale-control'); scaleLabel.appendChild(document.createTextNode('Масштаб '));
@@ -1331,6 +1528,11 @@ TableView.prototype.onGridClick = function (event) {
   var cell = findClassTarget(link, 'data-cell', this.content); var row = findClassTarget(cell, 'data-row', this.content); var entry = this.entryForRow(row);
   if (!entry) return;
   var value = entry.row.columns[Number(cell.getAttribute('data-column'))];
+  if (model.isTableCell(value)) {
+    event.preventDefault(); event.stopPropagation();
+    this.app.openTableCell(this, entry, Number(cell.getAttribute('data-column')), value);
+    return;
+  }
   if (!model.isLinkCell(value)) return;
   event.preventDefault(); event.stopPropagation(); this.app.bridge.send('EVENT_ON_LINK_CLICK', { label: value.label, href: value.ref });
 };
@@ -1737,7 +1939,7 @@ TableView.prototype.updateRow = function (row, entry, visibleRowIndex, pinned) {
     var layout = this.layout.columns[layoutIndex]; var value = entry.row.columns[layout.modelIndex]; var cell = row.children[layoutIndex + 1]; var display = model.resolveCellDisplay(value, this.app.displaySettings); var title = display.text; var type = this.table.columnTypes[layout.modelIndex];
     cell.className = 'grid-cell data-cell' + (type === 'number' || type === 'percent' ? ' numeric-cell' : '') + (layout.pinned ? ' pinned-column' : '') + (display.isEmptyReference ? ' empty-reference-cell' : ''); cell.title = title; cell.style.color = display.color || ''; cell.setAttribute('data-visible-column', String(layout.visibleIndex)); cell.setAttribute('data-column', String(layout.modelIndex)); clear(cell);
     var ranges = displayHighlightRanges(value, title, [this.app.globalFilter, this.state.columnFilters[layout.modelIndex]]);
-    if (display.isLink) { var link = element('a', 'cell-link'); link.href = '#'; appendHighlightedText(link, title, ranges); cell.appendChild(link); }
+    if (display.isLink || model.isTableCell(value)) { var link = element('a', 'cell-link' + (model.isTableCell(value) ? ' cell-table-link' : '')); link.href = '#'; appendHighlightedText(link, title, ranges); cell.appendChild(link); }
     else appendHighlightedText(cell, title, ranges);
     if (this.isSelected(visibleRowIndex, layout.visibleIndex)) cell.className += ' selected-cell';
   }

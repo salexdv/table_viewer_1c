@@ -814,7 +814,8 @@ async function main() {
 
     await page.evaluate(function () {
       window.__events = [];
-      document.getElementById('event-button').addEventListener('click', function (event) { window.__events.push(event.eventData1C); });
+      window.__eventCapture = function (event) { window.__events.push(event.eventData1C); };
+      document.getElementById('event-button').addEventListener('click', window.__eventCapture);
       window.setData({ tables: [{ name: 'События', columns: ['Ссылка', 'Сумма'], rows: [{ columns: [{ label: 'Открыть', ref: 'e1cib/data/Test?ref=1' }, '25'] }, { columns: ['Без ссылки', '15'] }] }] });
     });
     assert.ok(await page.$eval('.grid-viewport', function (node) { return node.getBoundingClientRect().height; }) < 240, 'Короткая одиночная таблица не должна растягиваться');
@@ -827,6 +828,109 @@ async function main() {
       { event: 'EVENT_ON_LINK_CLICK', params: { label: 'Открыть', href: 'e1cib/data/Test?ref=1' } },
       { event: 'EVENT_EXPORT', params: {} }
     ]);
+
+    await page.evaluate(function () {
+      function nestedTable(value, withDetails) {
+        return {
+          id: 'same-lines',
+          name: 'Товары',
+          columns: ['Значение', 'Детали'],
+          rows: [{ columns: [value, withDetails ? {
+            label: 'Открыть детали',
+            table: { id: 'details', name: '', columns: ['Описание'], rows: [{ columns: ['Глубокая таблица'] }] }
+          } : 'Нет'] }]
+        };
+      }
+      window.init({ tables: [{
+        id: 'root-table',
+        name: 'Реализации',
+        columns: ['Вложенная'],
+        rows: [
+          { columns: [{ label: 'Таблица 1', table: nestedTable('Первая', true) }] },
+          { columns: [{ label: 'Таблица 2', table: nestedTable('Вторая', false) }] }
+        ]
+      }] });
+      window.__nestedEvents = [];
+      document.getElementById('event-button').addEventListener('click', function (event) { window.__nestedEvents.push(event.eventData1C); });
+      window.addContextMenuItem('Передать значение таблицы', 'EVENT_TABLE_CELL');
+    });
+    assert.strictEqual(await page.$('.tabs-bar'), null, 'Одиночная исходная вкладка должна быть скрыта');
+    assert.strictEqual(await page.$$eval('.cell-table-link', function (nodes) { return nodes.length; }), 2);
+
+    await page.click('[data-row-id="0"] .cell-table-link');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.$$eval('.tab-button', function (nodes) {
+      return nodes.map(function (node) { return { text: node.textContent, selected: node.getAttribute('aria-selected') }; });
+    }), [
+      { text: 'Реализации', selected: 'false' },
+      { text: 'Товары', selected: 'true' }
+    ]);
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__nestedEvents; }), [], 'Вложенная таблица не должна отправлять событие ссылки');
+    assert.strictEqual(await page.$eval('[data-row-id="0"] [data-column="0"]', function (node) { return node.textContent; }), 'Первая');
+    await page.$eval('.global-search', function (input) { input.value = 'Первая'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise(function (resolve) { setTimeout(resolve, 160); });
+
+    await page.click('[data-row-id="0"] [data-column="1"] .cell-table-link');
+    assert.deepStrictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), [
+      'Реализации', 'Товары', 'Открыть детали'
+    ]);
+    assert.strictEqual(await page.$eval('.tab-button[aria-selected="true"]', function (node) { return node.textContent; }), 'Открыть детали');
+    assert.strictEqual(await page.$eval('[data-row-id="0"] .data-cell', function (node) { return node.textContent; }), 'Глубокая таблица');
+
+    await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
+    await page.click('[data-row-id="0"] .cell-table-link');
+    assert.strictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.length; }), 3, 'Повторный клик не должен создавать вкладку');
+    assert.strictEqual(await page.$eval('.global-search', function (node) { return node.value; }), 'Первая');
+
+    await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
+    await page.click('[data-row-id="1"] .cell-table-link');
+    assert.strictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.length; }), 4);
+    assert.deepStrictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), [
+      'Реализации', 'Товары', 'Открыть детали', 'Товары'
+    ]);
+    assert.strictEqual(await page.$eval('[data-row-id="0"] [data-column="0"]', function (node) { return node.textContent; }), 'Вторая');
+
+    assert.strictEqual(await page.evaluate(function () { return window.setTableCollapsed(0, true); }), true);
+    assert.notStrictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none', 'Публичный API не должен сворачивать активную вложенную таблицу');
+    await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
+    assert.strictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none');
+    await page.$$eval('.tab-button', function (nodes) { nodes[3].click(); });
+    assert.strictEqual(await page.evaluate(function () { return window.expandAll(); }), true);
+    await page.$$eval('.tab-button', function (nodes) { nodes[0].click(); });
+    assert.notStrictEqual(await page.$eval('.grid-host', function (node) { return getComputedStyle(node).display; }), 'none');
+
+    await page.click('[data-row-id="0"] .data-cell', { button: 'right' });
+    await clickContextMenuItem(page, 'Передать значение таблицы');
+    await new Promise(function (resolve) { setTimeout(resolve, 30); });
+    assert.deepStrictEqual(await page.evaluate(function () { return window.__nestedEvents; }), [
+      { event: 'EVENT_TABLE_CELL', params: { value: 'Таблица 1' } }
+    ]);
+
+    await page.$$eval('.tab-button', function (nodes) { nodes[3].click(); });
+    await page.$$eval('.tab-close-button', function (nodes) { nodes[0].click(); });
+    assert.deepStrictEqual(await page.$$eval('.tab-button', function (nodes) { return nodes.map(function (node) { return node.textContent; }); }), [
+      'Реализации', 'Открыть детали', 'Товары'
+    ], 'Дочерняя вкладка должна остаться после закрытия родительской');
+    await page.$$eval('.tab-close-button', function (nodes) { nodes[1].click(); });
+    assert.strictEqual(await page.$eval('.tab-button[aria-selected="true"]', function (node) { return node.textContent; }), 'Открыть детали');
+    await page.click('.tab-close-button');
+    assert.strictEqual(await page.$('.tabs-bar'), null);
+    assert.strictEqual(await page.$eval('.table-title', function (node) { return node.textContent; }), 'Реализации');
+
+    await page.click('[data-row-id="0"] .cell-table-link');
+    assert.ok(await page.$('.tabs-bar'));
+    assert.strictEqual(await page.evaluate(function () {
+      return window.setData({ tables: [{ name: 'Новые данные', columns: ['Значение'], rows: [{ columns: ['Сброс'] }] }] });
+    }), true);
+    assert.strictEqual(await page.$('.tabs-bar'), null, 'setData должен закрывать вложенные вкладки');
+    assert.strictEqual(await page.$eval('.table-title', function (node) { return node.textContent; }), 'Новые данные');
+    await page.evaluate(function () {
+      document.getElementById('event-button').removeEventListener('click', window.__eventCapture);
+      window.init({ tables: [{ name: 'Сброс пользовательского меню', columns: ['Значение'], rows: [{ columns: ['Готово'] }] }] });
+      window.__events = [];
+      window.__eventCapture = function (event) { window.__events.push(event.eventData1C); };
+      document.getElementById('event-button').addEventListener('click', window.__eventCapture);
+    });
 
     assert.deepStrictEqual(await page.evaluate(function () {
       return [
