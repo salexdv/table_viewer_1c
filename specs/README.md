@@ -19,6 +19,8 @@
 
 ## Завершённые спецификации
 
+- [`selected-cells-api`](done/selected-cells-api/spec.md) — получение выделенных ячеек активной вкладки,
+  названий колонок, исходных значений, отображаемого текста и обоих номеров строк.
 - [`table-viewer`](done/table-viewer/spec.md) — автономный просмотрщик таблиц и деревьев для 1С.
 - [`npm-package-manager`](done/npm-package-manager/spec.md) — установка, сборка и проверки проекта через npm.
 - [`table-viewer-controls`](done/table-viewer-controls/spec.md) — агрегаты, фильтры значений, диапазоны и ширины колонок.

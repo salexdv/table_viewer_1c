@@ -1294,6 +1294,7 @@ async function main() {
     assert.strictEqual(await page.evaluate(function () { return (' ' + document.documentElement.className + ' ').indexOf(' scrollbar-active ') !== -1; }), false, 'destroy должен очистить активность страницы');
     assert.strictEqual(await page.evaluate(function () { return document.documentElement.className.indexOf('theme-dark') === -1; }), true, 'destroy должен вернуть светлую тему');
 
+    await require('./selected-cells')(page);
     assert.deepStrictEqual(errors, []);
     console.log('[browser] Smoke-тест пройден');
   } finally {

@@ -1253,6 +1253,17 @@ ViewerApp.prototype.updateSelection = function (view) {
   this.renderSelectionPopup();
 };
 
+ViewerApp.prototype.getSelectedCells = function () {
+  for (var index = 0; index < this.tableViews.length; index += 1) {
+    var view = this.tableViews[index];
+    if (view.state.selection) {
+      return JSON.stringify(model.getSelectedCells(view.table, view.tableIndex, view.visibleRows,
+        view.state.selection, view.visibleColumns, this.displaySettings));
+    }
+  }
+  return JSON.stringify({ table: null, columns: [], rows: [] });
+};
+
 ViewerApp.prototype.clearTabSelection = function (tab) {
   for (var index = 0; index < tab.states.length; index += 1) tab.states[index].selection = null;
   if (tab === this.activeTab) this.clearSelection();
@@ -1979,6 +1990,7 @@ function installPublicApi() {
   window.init = function (data) { if (currentApp) currentApp.destroy(); var root = document.getElementById('app'); if (!root) return false; currentApp = new ViewerApp(root); return currentApp.load(data); };
   window.setData = function (data) { if (!currentApp) return window.init(data); return currentApp.load(data); };
   window.getSettings = function () { return currentApp ? currentApp.getSettings() : false; };
+  window.getSelectedCells = function () { return currentApp ? currentApp.getSelectedCells() : false; };
   window.setSettings = function (settings) { return currentApp ? currentApp.setSettings(settings) : false; };
   window.setTheme = function (theme) { return currentApp ? currentApp.setTheme(theme) : false; };
   window.hideThemeButton = function () { return currentApp ? currentApp.hideThemeButton() : false; };

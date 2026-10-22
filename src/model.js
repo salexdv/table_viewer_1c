@@ -1209,6 +1209,36 @@ function calculateColumnAggregate(table, visibleRows, columnIndex, aggregate) {
   return result;
 }
 
+// Снимок выделения не зависит от виртуализации и не раскрывает внутренние объекты модели.
+function getSelectedCells(table, tableIndex, visibleRows, selection, visibleColumns, displaySettings) {
+  var empty = { table: null, columns: [], rows: [] };
+  if (!selection) return empty;
+  var rowStart = Math.max(0, Math.min(selection.startRow, selection.endRow));
+  var rowEnd = Math.min(visibleRows.length - 1, Math.max(selection.startRow, selection.endRow));
+  var columnStart = Math.max(0, Math.min(selection.startColumn, selection.endColumn));
+  var columnEnd = Math.min(visibleColumns.length - 1, Math.max(selection.startColumn, selection.endColumn));
+  if (rowStart > rowEnd || columnStart > columnEnd) return empty;
+  var result = { table: { index: tableIndex, id: table.id === undefined ? null : table.id, name: table.name }, columns: [], rows: [] };
+  for (var columnIndex = columnStart; columnIndex <= columnEnd; columnIndex += 1) {
+    var column = visibleColumns[columnIndex];
+    result.columns.push({ index: column, id: table.columnIds[column], name: table.columns[column] });
+  }
+  for (var rowIndex = rowStart; rowIndex <= rowEnd; rowIndex += 1) {
+    var entry = visibleRows[rowIndex];
+    var cells = [];
+    for (var index = 0; index < result.columns.length; index += 1) {
+      var value = entry.row.columns[result.columns[index].index];
+      var snapshotValue = value;
+      if (isLinkCell(value)) snapshotValue = { label: value.label, ref: value.ref };
+      else if (isTableCell(value)) snapshotValue = { label: value.label };
+      cells.push({ value: snapshotValue, text: resolveCellDisplay(value, displaySettings).text });
+    }
+    var sourceNumber = entry.id.split('.').map(function (part) { return String(Number(part) + 1); }).join('.');
+    result.rows.push({ number: entry.number, sourceNumber: sourceNumber, cells: cells });
+  }
+  return result;
+}
+
 function calculateSelectionAggregates(table, visibleRows, selection, visibleColumns) {
   if (!selection) return calculateAggregates([]);
   var rowStart = Math.min(selection.startRow, selection.endRow);
@@ -1280,6 +1310,7 @@ module.exports = {
   calculateAggregate: calculateAggregate,
   calculateColumnAggregate: calculateColumnAggregate,
   calculateSelectionAggregates: calculateSelectionAggregates,
+  getSelectedCells: getSelectedCells,
   calculateSelectionAggregate: calculateSelectionAggregate,
   calculateTotals: calculateTotals,
   calculateSelectionSum: calculateSelectionSum,

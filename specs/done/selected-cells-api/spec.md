@@ -1,7 +1,7 @@
 ---
 issue: -
 title: API получения выделенных ячеек
-status: approved
+status: done
 owner: salexdv
 created: 2026-10-22
 updated: 2026-10-22
