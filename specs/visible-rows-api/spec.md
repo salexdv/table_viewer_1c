@@ -1,7 +1,7 @@
 ---
 issue: -
 title: API получения видимых строк активной вкладки
-status: draft
+status: approved
 owner: salexdv
 created: 2026-10-22
 updated: 2026-10-22
@@ -12,6 +12,8 @@ area:
 ---
 
 # visible-rows-api: API получения видимых строк активной вкладки
+
+План и контракт одобрены пользователем 2026-10-22 запросом «PLEASE IMPLEMENT THIS PLAN».
 
 ## 1. Контекст и проблема
 
