@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/salexdv/table_viewer_1c/compare/v1.2.0...v1.3.0) (2026-10-22)
+
+
+### Новые возможности
+
+* **api:** добавить получение видимых строк активной вкладки ([ef0e483](https://github.com/salexdv/table_viewer_1c/commit/ef0e483874c7e232c86852054fd61662c4fd0f42))
+* **api:** добавить получение данных выделенных ячеек ([5841a8a](https://github.com/salexdv/table_viewer_1c/commit/5841a8a2dbfa9973b8e38b6133066da493338dc8))
+
 ## [1.2.0](https://github.com/salexdv/table_viewer_1c/compare/v1.1.0...v1.2.0) (2026-09-28)
 
 
