@@ -1264,6 +1264,16 @@ ViewerApp.prototype.getSelectedCells = function () {
   return JSON.stringify({ table: null, columns: [], rows: [] });
 };
 
+ViewerApp.prototype.getVisibleRows = function () {
+  var tables = [];
+  for (var index = 0; index < this.tableViews.length; index += 1) {
+    var view = this.tableViews[index];
+    tables.push(model.getVisibleRows(view.table, view.tableIndex, view.state.collapsed ? [] : view.visibleRows,
+      view.visibleColumns, this.displaySettings));
+  }
+  return JSON.stringify({ tables: tables });
+};
+
 ViewerApp.prototype.clearTabSelection = function (tab) {
   for (var index = 0; index < tab.states.length; index += 1) tab.states[index].selection = null;
   if (tab === this.activeTab) this.clearSelection();
@@ -1991,6 +2001,7 @@ function installPublicApi() {
   window.setData = function (data) { if (!currentApp) return window.init(data); return currentApp.load(data); };
   window.getSettings = function () { return currentApp ? currentApp.getSettings() : false; };
   window.getSelectedCells = function () { return currentApp ? currentApp.getSelectedCells() : false; };
+  window.getVisibleRows = function () { return currentApp ? currentApp.getVisibleRows() : false; };
   window.setSettings = function (settings) { return currentApp ? currentApp.setSettings(settings) : false; };
   window.setTheme = function (theme) { return currentApp ? currentApp.setTheme(theme) : false; };
   window.hideThemeButton = function () { return currentApp ? currentApp.hideThemeButton() : false; };

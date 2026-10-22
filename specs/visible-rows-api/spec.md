@@ -1,7 +1,7 @@
 ---
 issue: -
 title: API получения видимых строк активной вкладки
-status: approved
+status: in-progress
 owner: salexdv
 created: 2026-10-22
 updated: 2026-10-22

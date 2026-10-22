@@ -1209,7 +1209,7 @@ function calculateColumnAggregate(table, visibleRows, columnIndex, aggregate) {
   return result;
 }
 
-// Снимок выделения не зависит от виртуализации и не раскрывает внутренние объекты модели.
+// Снимки строятся из проекции модели и не раскрывают её изменяемые объекты.
 function getSelectedCells(table, tableIndex, visibleRows, selection, visibleColumns, displaySettings) {
   var empty = { table: null, columns: [], rows: [] };
   if (!selection) return empty;
@@ -1218,12 +1218,17 @@ function getSelectedCells(table, tableIndex, visibleRows, selection, visibleColu
   var columnStart = Math.max(0, Math.min(selection.startColumn, selection.endColumn));
   var columnEnd = Math.min(visibleColumns.length - 1, Math.max(selection.startColumn, selection.endColumn));
   if (rowStart > rowEnd || columnStart > columnEnd) return empty;
+  return getVisibleRows(table, tableIndex, visibleRows.slice(rowStart, rowEnd + 1),
+    visibleColumns.slice(columnStart, columnEnd + 1), displaySettings);
+}
+
+function getVisibleRows(table, tableIndex, visibleRows, visibleColumns, displaySettings) {
   var result = { table: { index: tableIndex, id: table.id === undefined ? null : table.id, name: table.name }, columns: [], rows: [] };
-  for (var columnIndex = columnStart; columnIndex <= columnEnd; columnIndex += 1) {
+  for (var columnIndex = 0; columnIndex < visibleColumns.length; columnIndex += 1) {
     var column = visibleColumns[columnIndex];
     result.columns.push({ index: column, id: table.columnIds[column], name: table.columns[column] });
   }
-  for (var rowIndex = rowStart; rowIndex <= rowEnd; rowIndex += 1) {
+  for (var rowIndex = 0; rowIndex < visibleRows.length; rowIndex += 1) {
     var entry = visibleRows[rowIndex];
     var cells = [];
     for (var index = 0; index < result.columns.length; index += 1) {
@@ -1311,6 +1316,7 @@ module.exports = {
   calculateColumnAggregate: calculateColumnAggregate,
   calculateSelectionAggregates: calculateSelectionAggregates,
   getSelectedCells: getSelectedCells,
+  getVisibleRows: getVisibleRows,
   calculateSelectionAggregate: calculateSelectionAggregate,
   calculateTotals: calculateTotals,
   calculateSelectionSum: calculateSelectionSum,
